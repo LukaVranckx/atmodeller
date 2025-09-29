@@ -242,7 +242,7 @@ class OutputSolution(Output):
 
     @override
     def to_excel(
-        self, file_prefix: Path | str = "new_atmodeller_out", drop_unsuccessful: bool = False
+        self, file_prefix: Path | str = "atmodeller_out", drop_unsuccessful: bool = False
     ) -> None:
         """Writes the output to an Excel file.
 
@@ -250,7 +250,7 @@ class OutputSolution(Output):
         a solution if `drop_successful = False`.
 
         Args:
-            file_prefix: Prefix of the output file. Defaults to new_atmodeller_out.
+            file_prefix: Prefix of the output file. Defaults to atmodeller_out.
             drop_unsuccessful: Drop models that did not solve. Defaults to False.
         """
         logger.info("Writing output to excel")
@@ -283,12 +283,12 @@ class OutputSolution(Output):
 
     @override
     def to_pickle(
-        self, file_prefix: Path | str = "new_atmodeller_out", drop_unsuccessful: bool = False
+        self, file_prefix: Path | str = "atmodeller_out", drop_unsuccessful: bool = False
     ) -> None:
         """Writes the output to a pickle file.
 
         Args:
-            file_prefix: Prefix of the output file. Defaults to new_atmodeller_out.
+            file_prefix: Prefix of the output file. Defaults to atmodeller_out.
             drop_unsuccessful: Drop models that did not solve. Defaults to False.
         """
         logger.info("Writing output to pickle")

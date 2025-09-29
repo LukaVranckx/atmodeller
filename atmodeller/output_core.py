@@ -654,11 +654,11 @@ class Output:
 
         return dataframes
 
-    def to_excel(self, file_prefix: Path | str = "new_atmodeller_out") -> None:
+    def to_excel(self, file_prefix: Path | str = "atmodeller_out") -> None:
         """Writes the output to an Excel file.
 
         Args:
-            file_prefix: Prefix of the output file. Defaults to new_atmodeller_out.
+            file_prefix: Prefix of the output file. Defaults to atmodeller_out.
         """
         logger.info("Writing output to excel")
         out: dict[str, pd.DataFrame] = self.to_dataframes()
@@ -670,21 +670,20 @@ class Output:
 
         logger.info("Output written to %s", output_file)
 
+    def to_pickle(self, file_prefix: Path | str = "atmodeller_out") -> None:
+        """Writes the output to a pickle file.
 
-def to_pickle(self, file_prefix: Path | str = "new_atmodeller_out") -> None:
-    """Writes the output to a pickle file.
+        Args:
+            file_prefix: Prefix of the output file. Defaults to atmodeller_out.
+        """
+        logger.info("Writing output to pickle")
+        out: dict[str, pd.DataFrame] = self.to_dataframes()
+        output_file: Path = Path(f"{file_prefix}.pkl")
 
-    Args:
-        file_prefix: Prefix of the output file. Defaults to new_atmodeller_out.
-    """
-    logger.info("Writing output to pickle")
-    out: dict[str, pd.DataFrame] = self.to_dataframes()
-    output_file: Path = Path(f"{file_prefix}.pkl")
+        with open(output_file, "wb") as handle:
+            pickle.dump(out, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    with open(output_file, "wb") as handle:
-        pickle.dump(out, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-    logger.info("Output written to %s", output_file)
+        logger.info("Output written to %s", output_file)
 
 
 def broadcast_arrays_in_dict(some_dict: dict[str, NpArray], shape: int) -> dict[str, NpArray]:
