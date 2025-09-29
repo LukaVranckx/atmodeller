@@ -411,21 +411,6 @@ class Planet(eqx.Module):
         return self.mantle_mass * (1.0 - self.mantle_melt_fraction)
 
     @property
-    def mass(self) -> Array:
-        """Mass"""
-        return self.mantle_mass
-
-    @property
-    def melt_mass(self) -> Array:
-        """Mass of the melt"""
-        return self.mantle_melt_mass
-
-    @property
-    def solid_mass(self) -> Array:
-        """Mass of the solid"""
-        return self.mantle_solid_mass
-
-    @property
     def surface_area(self) -> Array:
         """Surface area"""
         return 4.0 * jnp.pi * jnp.square(self.surface_radius)
@@ -447,9 +432,9 @@ class Planet(eqx.Module):
             A dictionary of the values
         """
         base_dict: dict[str, ArrayLike] = asdict(self)
-        base_dict["mantle_mass"] = self.mass
-        base_dict["mantle_melt_mass"] = self.melt_mass
-        base_dict["mantle_solid_mass"] = self.solid_mass
+        base_dict["mantle_mass"] = self.mantle_mass
+        base_dict["mantle_melt_mass"] = self.mantle_melt_mass
+        base_dict["mantle_solid_mass"] = self.mantle_solid_mass
         base_dict["surface_area"] = self.surface_area
         base_dict["surface_gravity"] = self.surface_gravity
 

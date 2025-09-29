@@ -436,7 +436,7 @@ def get_species_density_in_melt(
         Number density of species dissolved in melt
     """
     molar_masses: ArrayLike = parameters.species.molar_masses
-    melt_mass: Float[Array, ""] = parameters.planet.melt_mass
+    melt_mass: Float[Array, ""] = parameters.planet.mantle_melt_mass
 
     ppmw: Float[Array, " species"] = get_species_ppmw_in_melt(parameters, log_number_density)
 
