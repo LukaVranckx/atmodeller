@@ -385,7 +385,8 @@ class IronWustiteBufferHirschmann(RedoxBuffer):
         Returns:
             True/False whether to use the low temperature formulation
         """
-        return as_j64(temperature) < self.high_temperature_buffer.calibration.temperature_min
+        # temperature_min is not None so ignore the typing complaint
+        return as_j64(temperature) < self.high_temperature_buffer.calibration.temperature_min  # pyright: ignore
 
     @override
     def log10_fugacity_buffer(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
