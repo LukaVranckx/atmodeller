@@ -165,7 +165,8 @@ class InteriorAtmosphere:
         num_failed_models: int = jnp.count_nonzero(~solver_status).item()
 
         logger.info(
-            "Solve complete: %d (%0.2f%%) successful model(s)",
+            "Solve (%s) complete: %d (%0.2f%%) successful model(s)",
+            solver_type,
             num_successful_models,
             num_successful_models * 100 / parameters.batch_size,
         )
