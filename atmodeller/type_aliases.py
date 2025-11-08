@@ -25,11 +25,7 @@ from typing import TypeAlias
 
 import numpy as np
 import numpy.typing as npt
-import optimistix as optx
-
-OptxSolver: TypeAlias = (
-    optx.AbstractRootFinder | optx.AbstractLeastSquaresSolver | optx.AbstractMinimiser
-)
+from jaxmod.type_aliases import OptxSolver as OptxSolver
 
 NpArray: TypeAlias = npt.NDArray
 NpBool: TypeAlias = npt.NDArray[np.bool_]

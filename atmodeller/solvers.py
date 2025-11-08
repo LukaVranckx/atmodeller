@@ -30,9 +30,10 @@ import jax.numpy as jnp
 import optimistix as optx
 from equinox._enum import EnumerationItem
 from jax import lax
-from jaxmod.solvers import MultiTrySolution, batch_retry_solver
+from jaxmod.solvers import MultiTrySolution, make_batch_retry_solver
 from jaxmod.utils import vmap_axes_spec
 from jaxtyping import Array, Bool, Float, Integer, PRNGKeyArray
+from optimistix import Solution
 
 from atmodeller.constants import TAU, TAU_MAX, TAU_NUM
 from atmodeller.containers import Parameters
@@ -41,28 +42,21 @@ from atmodeller.engine import objective_function
 LOG_NUMBER_DENSITY_VMAP_AXES: int = 0
 
 
-# @eqx.filter_jit
+@eqx.filter_jit
 # @eqx.debug.assert_max_traces(max_traces=1)
 def solve_single_system(
-    initial_guess: Float[Array, "..."],
-    parameters: Parameters,
-    key: PRNGKeyArray,
-    objective_function: Callable,
-) -> MultiTrySolution:
-    """Solves a single system of non-linear equations.
-
-    ``key`` is not used but is required for consistency with the interface.
+    initial_guess: Float[Array, "..."], parameters: Parameters, objective_function: Callable
+) -> optx.Solution:
+    """Solves a single system.
 
     Args:
         initial_guess: Initial guess for the solution
-        parameters: Model parameters required by the objective function and solver
-        key: JAX PRNG key for reproducible random perturbations (unused)
-        objective_function: Callable returning residuals for the system
+        parameters: Parameters
+        objective_function: Callable returning the residual
 
     Returns:
-        :class:`~jaxmod.solvers.MultiTrySolution` object
+        :class:`~optimistix.Solution` object
     """
-    del key
     sol: optx.Solution = optx.root_find(
         objective_function,
         parameters.solver_parameters.get_solver_instance(),
@@ -73,17 +67,7 @@ def solve_single_system(
         options=parameters.solver_parameters.get_options(parameters.species.number_species),
     )
 
-    # Instantiate a new MultiTrySolution, pass arguments, and set attempts to unity
-    multi_sol: MultiTrySolution = MultiTrySolution(
-        sol.value,
-        sol.result,
-        aux=sol.aux,
-        stats=sol.stats,
-        state=sol.state,
-        attempts=jnp.ones(len(sol.value), dtype=int),
-    )
-
-    return multi_sol
+    return sol
 
 
 def make_independent_solver(parameters: Parameters) -> Callable:
@@ -95,166 +79,174 @@ def make_independent_solver(parameters: Parameters) -> Callable:
     statistics.
 
     Args:
-        parameters: Model parameters required by the objective function and solver
+        parameters: Parameters
 
     Returns:
-        Callable that returns a :class:`~jaxmod.solvers.MultiTrySolution` object
+        Callable that returns a :class:`~optimistix.Solution` object
     """
-    solver_fn: Callable = eqx.Partial(solve_single_system, objective_function=objective_function)
+    solver_function: Callable = eqx.Partial(
+        solve_single_system, objective_function=objective_function
+    )
 
     return eqx.filter_jit(
         eqx.filter_vmap(
-            solver_fn, in_axes=(LOG_NUMBER_DENSITY_VMAP_AXES, vmap_axes_spec(parameters), None)
+            solver_function, in_axes=(LOG_NUMBER_DENSITY_VMAP_AXES, vmap_axes_spec(parameters))
         )
     )
 
 
-def make_batched_solver(parameters: Parameters) -> Callable:
-    """Gets a JIT-compiled solver for batched systems treated as a single problem.
-
-    Batch mode treats all systems as one large system, so a single convergence status applies
-    across the batch. This is broadcast back to per-batch elements for compatibility.
+def make_objective_function_vmapped(parameters: Parameters) -> Callable:
+    """Gets a vmapped, JIT-compiled objective function.
 
     Args:
-        parameters: Model parameters required by the objective function and solver
+        parameters: Parameters
 
     Returns:
-        Callable that returns a :class:`~jaxmod.solvers.MultiTrySolution` object
+        Callable
     """
-    objective_vmap: Callable = eqx.filter_vmap(
-        objective_function,
-        in_axes=(LOG_NUMBER_DENSITY_VMAP_AXES, vmap_axes_spec(parameters)),
+    return eqx.filter_jit(
+        eqx.filter_vmap(
+            objective_function, in_axes=(LOG_NUMBER_DENSITY_VMAP_AXES, vmap_axes_spec(parameters))
+        )
     )
-    solver_fn: Callable = eqx.Partial(solve_single_system, objective_function=objective_vmap)
+
+
+def make_batch_solver(parameters: Parameters) -> Callable:
+    """Gets a JIT-compiled solver for batched systems treated as a single problem.
+
+    Args:
+        parameters: Parameters
+
+    Returns:
+        Callable that returns a :class:`~optimistix.Solution` object
+    """
+    objective_function_vmapped: Callable = make_objective_function_vmapped(parameters)
+    solver_function: Callable = eqx.Partial(
+        solve_single_system, objective_function=objective_function_vmapped
+    )
 
     @eqx.filter_jit
-    def solver(solution: Array, parameters: Parameters, key: PRNGKeyArray) -> MultiTrySolution:
-        sol: optx.Solution = solver_fn(solution, parameters, key)
-
-        # Batch model will return a single result, so we broadcast to maintain consistency with
-        # downstream processing that expects a batch dimension
-        broadcasted_result: optx.RESULTS = cast(
-            optx.RESULTS,
-            EnumerationItem(jnp.broadcast_to(sol.result._value, len(sol.value)), optx.RESULTS),  # pyright: ignore
-        )
-        num_steps: Integer[Array, " batch"] = jnp.broadcast_to(
-            sol.stats["num_steps"], len(sol.value)
-        )
-        sol = eqx.tree_at(lambda sol: sol.stats["num_steps"], sol, num_steps)
-
-        # Instantiate a new MultiTrySolution, pass arguments, and set attempts to unity
-        multi_sol: MultiTrySolution = MultiTrySolution(
-            sol.value,
-            broadcasted_result,
-            aux=sol.aux,
-            stats=sol.stats,
-            state=sol.state,
-            attempts=jnp.ones(len(sol.value), dtype=int),
-        )
-
-        return multi_sol
+    def solver(solution: Array, parameters: Parameters) -> optx.Solution:
+        return solver_function(solution, parameters)
 
     return solver
 
 
-@eqx.filter_jit
-# @eqx.debug.assert_max_traces(max_traces=1)
-def tau_sweep_solver(
-    solver_fn: Callable,
-    initial_guess: Float[Array, "batch solution"],
-    parameters: Parameters,
-    key: PRNGKeyArray,
-) -> MultiTrySolution:
-    """Solves a batch of solutions for a sequence of tau values using a solver function.
+def make_tau_sweep_solver(solver_function: Callable, objective_function: Callable) -> Callable:
+    """Makes a tau sweep solver.
 
-    This function iterates over a set of tau values and applies the solver function (``solver_fn``)
-    to the batch of solutions at each tau step. It dynamically updates the ``tau`` value in the
-    solver parameters for each iteration. This function is intended to be used inside
-    ``jax.lax.scan`` to efficiently sweep over multiple tau values in a single compiled loop.
+    ``solver_function`` and ``objective_function`` must support batch evaluations.
 
     Args:
-        solver_fn: Callable that performs a single solve and returns an ``optx.Solution`` object
-        initial_guess: Batched array of initial guesses for the solver
-        parameters: Template :class:`~atmodeller.containers.Parameters` object containing the
-            full solver configuration. The ``tau`` leaf inside
-            :class:`~atmodeller.containers.SolverParameters` will be replaced at each step.
-        key: JAX PRNG key for reproducible random perturbations
+        solver_function: Callable that performs a single solve and returns a
+            :class:`~optimistix.Solution`` object
+        objective_function: Callable for the objective function
 
     Returns:
-        :class:`~jaxmod.solvers.MultiTrySolution` object
+        Callable
     """
+    batch_retry_solver: Callable = make_batch_retry_solver(solver_function, objective_function)
 
-    def solve_tau_step(carry: tuple, tau: Float[Array, " batch"]) -> tuple[tuple, tuple]:
-        """Performs a single solver step for a given batch of tau values.
+    @eqx.filter_jit
+    # @eqx.debug.assert_max_traces(max_traces=1)
+    def tau_sweep_solver(
+        initial_guess: Float[Array, "batch solution"], parameters: Parameters, key: PRNGKeyArray
+    ) -> MultiTrySolution:
+        """Solves a batch of solutions for a sequence of tau values using a solver function.
 
-        This function is intended to be used inside :func``jax.lax.scan`` to iterate over multiple
-        tau values efficiently. It updates the ``tau`` leaf in the parameters, calls the
-        :func:`repeat_solver` for the current batch, and returns the updated carry and results.
+        This function iterates over a set of tau values and applies the solver function to the
+        batch of solutions at each tau step. It dynamically updates the ``tau`` value in the solver
+        parameters for each iteration. This function is intended to be used inside ``jax.lax.scan``
+        to efficiently sweep over multiple tau values in a single compiled loop.
 
         Args:
-            carry: Tuple of carry values
-            tau: Array of tau values for the current step in the scan.
+            initial_guess: Batched array of initial guesses for the solver
+            parameters: Template :class:`~atmodeller.containers.Parameters` object containing the
+                full solver configuration. The ``tau`` leaf inside
+                :class:`~atmodeller.containers.SolverParameters` will be replaced at each step.
+            key: JAX PRNG key for reproducible random perturbations
 
         Returns:
-            new carry tuple, output tuple
+            :class:`~jaxmod.solvers.MultiTrySolution` object
         """
-        (key, solution) = carry
-        key, subkey = jax.random.split(key)
 
-        # Get new parameters with tau value
-        get_leaf: Callable = lambda t: t.solver_parameters.tau  # noqa: E731
-        new_parameters: Parameters = eqx.tree_at(get_leaf, parameters, tau)
-        # jax.debug.print("tau = {out}", out=new_parameters.solver_parameters.tau)
+        def solve_tau_step(carry: tuple, tau: Float[Array, " batch"]) -> tuple[tuple, tuple]:
+            """Performs a single solver step for a given batch of tau values.
 
-        new_sol: MultiTrySolution = batch_retry_solver(
-            solver_fn,
-            solution,
-            new_parameters,
-            parameters.solver_parameters.multistart_perturbation,
-            parameters.solver_parameters.multistart,
-            subkey,
+            This function is intended to be used inside :func``jax.lax.scan`` to iterate over multiple
+            tau values efficiently. It updates the ``tau`` leaf in the parameters, calls the
+            :func:`repeat_solver` for the current batch, and returns the updated carry and results.
+
+            Args:
+                carry: Tuple of carry values
+                tau: Array of tau values for the current step in the scan.
+
+            Returns:
+                new carry tuple, output tuple
+            """
+            (key, solution) = carry
+            key, subkey = jax.random.split(key)
+
+            # Get new parameters with tau value
+            get_leaf: Callable = lambda t: t.solver_parameters.tau  # noqa: E731
+            new_parameters: Parameters = eqx.tree_at(get_leaf, parameters, tau)
+            # jax.debug.print("tau = {out}", out=new_parameters.solver_parameters.tau)
+
+            new_sol: MultiTrySolution = batch_retry_solver(
+                solution,
+                new_parameters,
+                subkey,
+                parameters.solver_parameters.multistart_perturbation,
+                parameters.solver_parameters.multistart,
+            )
+
+            new_solution: Float[Array, "batch solution"] = new_sol.value
+            new_result: optx.RESULTS = new_sol.result
+            new_steps: Integer[Array, " batch"] = new_sol.stats["num_steps"]
+            success_attempt: Integer[Array, " batch"] = new_sol.attempts
+
+            new_carry: tuple[PRNGKeyArray, Float[Array, "batch solution"]] = (key, new_solution)
+
+            # Output current solution for this tau step
+            out: tuple[Array, ...] = (new_solution, new_result._value, new_steps, success_attempt)  # pyright: ignore
+
+            return new_carry, out
+
+        varying_tau_row: Float[Array, " tau"] = jnp.logspace(
+            jnp.log10(TAU_MAX), jnp.log10(TAU), num=TAU_NUM
+        )
+        constant_tau_row: Float[Array, " tau"] = jnp.full((TAU_NUM,), TAU)
+        tau_templates: Float[Array, "tau 2"] = jnp.stack(
+            [varying_tau_row, constant_tau_row], axis=1
         )
 
-        new_solution: Float[Array, "batch solution"] = new_sol.value
-        new_result: optx.RESULTS = new_sol.result
-        new_steps: Integer[Array, " batch"] = new_sol.stats["num_steps"]
-        success_attempt: Integer[Array, " batch"] = new_sol.attempts
+        # Create solver_status as a 1-D array of zeros with the same number of rows as initial_guess
+        solver_status: jnp.ndarray = jnp.zeros(initial_guess.shape[0], dtype=int)
 
-        new_carry: tuple[PRNGKeyArray, Float[Array, "batch solution"]] = (key, new_solution)
+        tau_array: Float[Array, "tau batch"] = tau_templates[:, solver_status]
 
-        # Output current solution for this tau step
-        out: tuple[Array, ...] = (new_solution, new_result._value, new_steps, success_attempt)  # pyright: ignore
+        initial_carry: tuple[Array, Array] = (key, initial_guess)
 
-        return new_carry, out
+        _, results = jax.lax.scan(solve_tau_step, initial_carry, tau_array)
+        solution, result_value, steps, attempts = results
 
-    varying_tau_row: Float[Array, " tau"] = jnp.logspace(
-        jnp.log10(TAU_MAX), jnp.log10(TAU), num=TAU_NUM
-    )
-    constant_tau_row: Float[Array, " tau"] = jnp.full((TAU_NUM,), TAU)
-    tau_templates: Float[Array, "tau 2"] = jnp.stack([varying_tau_row, constant_tau_row], axis=1)
+        # Bundle the final outputs into a single optimistix Solution object
+        final_result: optx.RESULTS = cast(
+            optx.RESULTS,
+            EnumerationItem(result_value[-1], optx.RESULTS),  # pyright: ignore
+        )
 
-    # Create solver_status as a 1-D array of zeros with the same number of rows as initial_guess
-    solver_status: jnp.ndarray = jnp.zeros(initial_guess.shape[0], dtype=int)
+        # NOTE: This solution instance does not return all the information from the solves, but it
+        # encapsulates the most important (final) quantities. Aggregate output, solution and result
+        # for final TAU
+        sol: Solution = Solution(
+            solution[-1], final_result, None, {"num_steps": jnp.max(steps, axis=0)}, None
+        )
+        multi_sol: MultiTrySolution = MultiTrySolution(sol, attempts=jnp.max(attempts, axis=0))
 
-    tau_array: Float[Array, "tau batch"] = tau_templates[:, solver_status]
+        return multi_sol
 
-    initial_carry: tuple[Array, Array] = (key, initial_guess)
-
-    _, results = jax.lax.scan(solve_tau_step, initial_carry, tau_array)
-    solution, result_value, steps, attempts = results
-
-    # Aggregate output, solution and result for final TAU
-    solution = solution[-1]
-    result: optx.RESULTS = cast(optx.RESULTS, EnumerationItem(result_value[-1], optx.RESULTS))  # pyright: ignore
-    steps: Integer[Array, " batch"] = jnp.max(steps, axis=0)  # Max steps for all tau
-    attempts: Integer[Array, " batch"] = jnp.max(attempts, axis=0)  # Max for all tau
-
-    # Bundle the final solution into a single object
-    sol_multi: MultiTrySolution = MultiTrySolution(
-        solution, result, None, {"num_steps": steps}, None, attempts
-    )
-
-    return sol_multi
+    return tau_sweep_solver
 
 
 def make_solver(parameters: Parameters) -> Callable:
@@ -267,6 +259,10 @@ def make_solver(parameters: Parameters) -> Callable:
         Solver
     """
     solver: Callable = make_independent_solver(parameters)
+    objective_function_vmapped: Callable = make_objective_function_vmapped(parameters)
+
+    tau_sweep_solver: Callable = make_tau_sweep_solver(solver, objective_function_vmapped)
+    batch_retry_solver: Callable = make_batch_retry_solver(solver, objective_function_vmapped)
 
     @eqx.filter_jit
     # @eqx.debug.assert_max_traces(max_traces=1)
@@ -291,18 +287,17 @@ def make_solver(parameters: Parameters) -> Callable:
         def solve_with_stability_multistart(key):
             """Function for multistart with stability"""
             subkey = jax.random.split(key)[1]  # Split only once and pass subkey
-            return tau_sweep_solver(solver, base_solution_array, parameters, subkey)
+            return tau_sweep_solver(base_solution_array, parameters, subkey)
 
         def solve_with_generic_multistart(key):
             """Function for generic multistart"""
             subkey = jax.random.split(key)[1]  # Split only once and pass subkey
             return batch_retry_solver(
-                solver,
                 base_solution_array,
                 parameters,
+                subkey,
                 parameters.solver_parameters.multistart_perturbation,
                 parameters.solver_parameters.multistart,
-                subkey,
             )
 
         multi_sol = lax.cond(
