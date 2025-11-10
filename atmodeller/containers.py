@@ -23,15 +23,13 @@ from typing import Any, Literal, Optional
 
 import equinox as eqx
 import jax.numpy as jnp
-import lineax as lx
 import numpy as np
-import optimistix as optx
 from jax import lax
 from jaxmod.constants import AVOGADRO, GRAVITATIONAL_CONSTANT
+from jaxmod.solvers import RootFindParameters
 from jaxmod.units import unit_conversion
 from jaxmod.utils import as_j64, get_batch_size, partial_rref, to_hashable
 from jaxtyping import Array, ArrayLike, Bool, Float, Float64
-from lineax import AbstractLinearSolver
 from molmass import Formula
 
 from atmodeller.constants import (
@@ -50,7 +48,7 @@ from atmodeller.thermodata import (
     IndividualSpeciesData,
     thermodynamic_data_source,
 )
-from atmodeller.type_aliases import NpArray, NpBool, NpFloat, NpInt, OptxSolver
+from atmodeller.type_aliases import NpArray, NpBool, NpFloat, NpInt
 from atmodeller.utilities import get_log_number_density_from_log_pressure
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -696,6 +694,8 @@ class MassConstraints(eqx.Module):
     """Species"""
     units: Literal["mass", "moles"] = "mass"
     """Units of the abundance"""
+    oxygen_column_index: Optional[int] = None
+    """Column index of oxygen in ``abundance``. Defaults to ``None``."""
 
     @classmethod
     def create(
@@ -828,17 +828,17 @@ class MassConstraints(eqx.Module):
         return log_number_density
 
 
-class SolverParameters(eqx.Module):
+class SolverParameters(RootFindParameters):
     """Solver parameters
 
     Args:
-        solver: Solver. Defaults to ``optx.Newton``
+        solver: Solver. Defaults to :class:`optimistix.Newton`.
         atol: Absolute tolerance. Defaults to ``1.0e-6``.
         rtol: Relative tolerance. Defaults to ``1.0e-6``.
         linear_solver: Linear solver. Defaults to ``AutoLinearSolver(well_posed=False)``.
-        norm: Norm. Defaults to ``optx.rms_norm``.
+        norm: Norm. Defaults to :func:`optimistix.max_norm`.
         throw: How to report any failures. Defaults to ``False``.
-        max_steps: The maximum number of steps the solver can take. Defaults to ``256``
+        max_steps: The maximum number of steps the solver can take. Defaults to ``256``.
         jac: Whether to use forward- or reverse-mode autodifferentiation to compute the Jacobian.
             Can be either ``fwd`` or ``bwd``. Defaults to ``fwd``.
         multistart: Number of multistarts. Defaults to ``10``.
@@ -846,41 +846,12 @@ class SolverParameters(eqx.Module):
         tau: Tau factor for species stability. Defaults to :const:`~atmodeller.constants.TAU`.
     """
 
-    solver: type[OptxSolver] = optx.Newton
-    """Solver"""
-    atol: float = 1.0e-6
-    """Absolute tolerance"""
-    rtol: float = 1.0e-6
-    """Relative tolerance"""
-    linear_solver: AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
-    """Linear solver
-    
-    https://docs.kidger.site/lineax/api/solvers/   
-    """
-    norm: Callable = optx.max_norm
-    """Norm""" ""
-    throw: bool = False
-    """How to report any failures"""
-    max_steps: int = 256
-    """Maximum number of steps the solver can take"""
-    jac: Literal["fwd", "bwd"] = "fwd"
-    """Whether to use forward- or reverse-mode autodifferentiation to compute the Jacobian"""
     multistart: int = 10
     """Number of multistarts"""
     multistart_perturbation: float = 30.0
     """Perturbation for multistart"""
     tau: Array = eqx.field(converter=as_j64, default=TAU)  # NOTE: Must be an array to trace tau
     """Tau factor for species stability"""
-
-    def get_solver_instance(self) -> OptxSolver:
-        return self.solver(
-            rtol=self.rtol,
-            atol=self.atol,
-            norm=self.norm,
-            linear_solver=self.linear_solver,  # type: ignore because there is a parameter
-            # For debugging LM solver. Not valid for all solvers (e.g. Newton)
-            # verbose=frozenset({"step_size", "y", "loss", "accepted"}),
-        )
 
     def get_options(self, number_species: int) -> dict[str, Any]:
         """Gets the solver options.
