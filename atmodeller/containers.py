@@ -84,6 +84,7 @@ class Species(eqx.Module):
         state: str = "cr",
         activity: ActivityProtocol = CondensateActivity(),
         solve_for_stability: bool = True,
+        miscibility: bool = False,
     ) -> "Species":
         """Creates a condensate
 
@@ -96,7 +97,7 @@ class Species(eqx.Module):
         Returns:
             A condensed species
         """
-        species_data: IndividualSpeciesData = IndividualSpeciesData(formula, state)
+        species_data: IndividualSpeciesData = IndividualSpeciesData(formula, state, miscibility)
 
         # For a condensate, either both a number density and stability are solved for, or
         # alternatively stability can be enforced in which case the number density is irrelevant
@@ -117,6 +118,7 @@ class Species(eqx.Module):
         activity: ActivityProtocol = IdealGas(),
         solubility: SolubilityProtocol = NoSolubility(),
         solve_for_stability: bool = False,
+        miscibility: bool = False,
     ) -> "Species":
         """Creates a gas species
 
@@ -131,7 +133,7 @@ class Species(eqx.Module):
         Returns:
             A gas species
         """
-        species_data: IndividualSpeciesData = IndividualSpeciesData(formula, state)
+        species_data: IndividualSpeciesData = IndividualSpeciesData(formula, state, miscibility)
 
         # For a gas, a number density is always solved for, and stability can be if desired
         number_solution: int = 2 if solve_for_stability else 1

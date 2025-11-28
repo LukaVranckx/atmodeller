@@ -592,14 +592,17 @@ class IndividualSpeciesData(eqx.Module):
     """Hill formula"""
     molar_mass: float = eqx.field(converter=float)
     """Molar mass"""
+    miscibility: bool
+    """Mix of multiple species"""
 
-    def __init__(self, formula: str, state: str):
+    def __init__(self, formula: str, state: str, miscibility: bool):
         self.formula = formula
         self.state = state
         mformula: Formula = Formula(self.formula)
         self.composition = ImmutableMap(mformula.composition().asdict())
         self.hill_formula = mformula.formula
         self.molar_mass = mformula.mass * unit_conversion.g_to_kg
+        self.miscibility = miscibility
         try:
             self.thermo = thermodynamic_coefficients_dictionary[self.name]
         except KeyError:
@@ -619,7 +622,8 @@ class IndividualSpeciesData(eqx.Module):
         return f"{self.hill_formula}_{self.state}"
 
     def get_gibbs_over_RT(self, temperature: ArrayLike) -> Array:
-        """Gets Gibbs energy over RT
+        """Gets Gibbs energy over RT. For the miscible phase of H and H2O, the Gibbs energy of 
+        mixing is calculated according to Gupta et al. 2025 A.3 {Equation A3}
 
         Args:
             temperature: Temperature in K
@@ -627,4 +631,30 @@ class IndividualSpeciesData(eqx.Module):
         Returns:
             Gibbs energy over RT
         """
-        return self.thermo.get_gibbs_over_RT(temperature)
+        gibbs_over_RT = self.thermo.get_gibbs_over_RT(temperature)
+
+        if self.miscibility:
+            if self.formula == 'H4O':
+                # Asumptions: Equal ammount of moles: 50% H2, 50% H2O
+                # Pressure estimate comes from no miscibilty case
+                X = 0.5
+                LAMBDA = 2.62 + (-0.68)/(temperature/1000) 
+                Y = X / (X + LAMBDA*(1-X)) # y in Gupta et al. 2025
+                pressure = 20.3604 # (GPa) output of atmodelle for O-H system in same conditions (w/o miscibility)
+
+                print('INFO | Calculating Gibbs free energy of mixing between H2 and H2O')
+                # gibbs_pure = -135.528 * (1-Y) / (GAS_CONSTANT * temperature) # 2000 K: from NIST-JANAF tables
+                gibbs_pure: Float[Array, " T"] = jnp.array(11.245 * (1-Y), float) # 4500 K; from NIST-JANAF tables
+                gibbs_idealmix: Float[Array, " T"] = jnp.array(Y*jnp.log(Y)+(1-Y)*jnp.log(1-Y), float)
+                W_H = -599.08
+                W_S = 16.08 # Unsure whether sign is correct (TODO)
+                W_V = -26.12 + 981.78/(temperature/1000)**2
+                # jax.debug.print("W_H={}, T*W_S={}, P*W_V={}", W_H, temperature*W_S, pressure*W_V)
+                W = W_H - temperature*W_S + pressure*W_V
+                gibbs_excess: Float[Array, " T"] = jnp.array(W*Y*(1-Y), float)
+                # jax.debug.print('Gibbs energy of mixing is {out}', out=gibbs_idealmix + gibbs_excess)
+                gibbs_over_RT: Float[Array, " T"] = (gibbs_pure + gibbs_idealmix + gibbs_excess) / (GAS_CONSTANT * temperature)
+                # jax.debug.print('Gibbs energy {out}', out=gibbs_over_RT)
+                gibbs_over_RT = jnp.array([gibbs_over_RT])
+
+        return gibbs_over_RT
