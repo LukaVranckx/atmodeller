@@ -102,7 +102,7 @@ def debug_logger() -> logging.Logger:
     return package_logger
 
 
-def debug_file_logger() -> logging.Logger:
+def debug_file_logger(filename) -> logging.Logger:
     """Sets up info logging to the console and debug logging to a file.
 
     Returns:
@@ -118,7 +118,7 @@ def debug_file_logger() -> logging.Logger:
     console_handler.setLevel(logging.INFO)
     package_logger.addHandler(console_handler)
     # File logger
-    file_handler: logging.Handler = logging.FileHandler(f"{__package__}.log")
+    file_handler: logging.Handler = logging.FileHandler(f"{__package__ if filename is None else filename}.log")
     file_formatter: logging.Formatter = complex_formatter()
     file_handler.setFormatter(file_formatter)
     file_handler.setLevel(logging.DEBUG)
