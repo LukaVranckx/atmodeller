@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import cast
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import pandas as pd
 from jaxmod.constants import GAS_CONSTANT
@@ -592,7 +593,7 @@ class IndividualSpeciesData(eqx.Module):
     """Hill formula"""
     molar_mass: float = eqx.field(converter=float)
     """Molar mass"""
-    miscibility: bool
+    miscibility: bool = False
     """Mix of multiple species"""
 
     def __init__(self, formula: str, state: str, miscibility: bool):
@@ -637,24 +638,39 @@ class IndividualSpeciesData(eqx.Module):
             if self.formula == 'H4O':
                 # Asumptions: Equal ammount of moles: 50% H2, 50% H2O
                 # Pressure estimate comes from no miscibilty case
-                X = 0.5
                 LAMBDA = 2.62 + (-0.68)/(temperature/1000) 
-                Y = X / (X + LAMBDA*(1-X)) # y in Gupta et al. 2025
-                pressure = 20.3604 # (GPa) output of atmodelle for O-H system in same conditions (w/o miscibility)
-
+                X = LAMBDA / (1+ LAMBDA) # critical composition
+                # jax.debug.print("x = {}, temperature {}", X, temperature)
+                # Y = X / (X + LAMBDA*(1-X)) # y in Gupta et al. 2025
+                Y = X # Using X in equations below (bcs Y always defined as 0.5)
+                # jax.debug.print("Y = {}, temperature {}", Y, temperature)
+                pressure = 36 # (GPa) output of atmodelle for O-H system in same conditions (WITH miscibility, ideal gasses)
+                # pressure = 72 # (GPa) output of atmodelle for O-H system in same conditions (WITH miscibility, real gasses)
+                
                 print('INFO | Calculating Gibbs free energy of mixing between H2 and H2O')
-                # gibbs_pure = -135.528 * (1-Y) / (GAS_CONSTANT * temperature) # 2000 K: from NIST-JANAF tables
-                gibbs_pure: Float[Array, " T"] = jnp.array(11.245 * (1-Y), float) # 4500 K; from NIST-JANAF tables
+                gibbs_over_RT_pure: Float[Array, " T"] = IndividualSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) * Y + IndividualSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature) * (1-Y)
+                # jax.debug.print("gibbs pure = {}, temperature {}", gibbs_over_RT_pure, temperature)
+                
                 gibbs_idealmix: Float[Array, " T"] = jnp.array(Y*jnp.log(Y)+(1-Y)*jnp.log(1-Y), float)
+                # jax.debug.print("gibbs_idealmix = {}, temperature {}", gibbs_idealmix, temperature)
                 W_H = -599.08
-                W_S = 16.08 # Unsure whether sign is correct (TODO)
+                W_S = -16.08 
                 W_V = -26.12 + 981.78/(temperature/1000)**2
                 # jax.debug.print("W_H={}, T*W_S={}, P*W_V={}", W_H, temperature*W_S, pressure*W_V)
                 W = W_H - temperature*W_S + pressure*W_V
                 gibbs_excess: Float[Array, " T"] = jnp.array(W*Y*(1-Y), float)
-                # jax.debug.print('Gibbs energy of mixing is {out}', out=gibbs_idealmix + gibbs_excess)
-                gibbs_over_RT: Float[Array, " T"] = (gibbs_pure + gibbs_idealmix + gibbs_excess) / (GAS_CONSTANT * temperature)
-                # jax.debug.print('Gibbs energy {out}', out=gibbs_over_RT)
-                gibbs_over_RT = jnp.array([gibbs_over_RT])
+                jax.debug.print('Gibbs energy of mixing is {}, temperature {}', gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature),temperature)
+                gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature) # unit: (J/mol/K) / (J/mol/K) so unitless
+                # jax.debug.print('Gibbs_over_RT H4O {out}', out=gibbs_over_RT)
+
+                # Printing Gibbs energy of reacion H2 + H2O -> H4O
+                G_H4O = gibbs_over_RT
+                G_H2 = IndividualSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
+                G_H2O = IndividualSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
+                # jax.debug.print("G_H2 = {}, temperature {}",G_H2, temperature)
+                # jax.debug.print("G_H2O = {}, temperature {}",G_H2O, temperature)
+                # jax.debug.print("G_H4O = {}, temperature {}",G_H4O, temperature)
+                jax.debug.print("gibbs_over_RT reaction = {}, temperature {}, y {}",G_H4O-G_H2-G_H2O, temperature, Y)
+                jax.debug.print("gibbs_over_RT reaction Y corrected = {}, temperature {}, y {}",G_H4O-Y*G_H2-(1-Y)*G_H2O, temperature, Y)
 
         return gibbs_over_RT

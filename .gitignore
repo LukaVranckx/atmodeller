@@ -169,3 +169,12 @@ docs/bin/pandoc
 *.pdf
 *.pkl
 *.xlsx
+
+# Plots
+*.png
+
+# Personal Notebooks or folders
+sandbox/
+MiscibilityH/
+Debug_Miscibility.py
+.vscode/launch.json
