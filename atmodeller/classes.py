@@ -26,9 +26,9 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, ArrayLike, Bool, Float, PRNGKeyArray
 
-from atmodeller.constants import INITIAL_LOG_NUMBER_DENSITY, INITIAL_LOG_STABILITY
-from atmodeller.containers import Parameters, Planet, SolverParameters, SpeciesCollection
-from atmodeller.interfaces import FugacityConstraintProtocol
+from atmodeller.constants import INITIAL_LOG_NUMBER_MOLES, INITIAL_LOG_STABILITY
+from atmodeller.containers import Parameters, SolverParameters, SpeciesNetwork
+from atmodeller.interfaces import FugacityConstraintProtocol, ThermodynamicStateProtocol
 from atmodeller.output import Output, OutputDisequilibrium, OutputSolution
 from atmodeller.solvers import MultiAttemptSolution, make_independent_solver, make_solver
 from atmodeller.type_aliases import NpFloat
@@ -36,29 +36,31 @@ from atmodeller.type_aliases import NpFloat
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-class InteriorAtmosphere:
-    """Interior atmosphere coupled system
+class EquilibriumModel:
+    """An equilibrium model
 
-    This is the main class that the user interacts with to build interior-atmosphere systems,
-    solve them, and retrieve the results.
+    This is the main class that the user interacts with to build equilibrium models, solve them,
+    and retrieve the results.
 
     Args:
-        species: Collection of species
+        species_network: Species network
     """
 
     _solver: Optional[Callable] = None
     _output: Optional[Output] = None
 
-    def __init__(self, species: SpeciesCollection):
-        self.species: SpeciesCollection = species
-        logger.info("species = %s", str(self.species))
-        temperature_min, temperature_max = self.species.get_temperature_range()
+    def __init__(self, species_network: SpeciesNetwork):
+        self.species_network: SpeciesNetwork = species_network
+        logger.info("species_network = %s", str(self.species_network))
+        temperature_min, temperature_max = self.species_network.get_temperature_range()
         logger.info(
             "Thermodynamic data requires temperatures between %d K and %d K",
             np.ceil(temperature_min),
             np.floor(temperature_max),
         )
-        logger.info("reactions = %s", pprint.pformat(self.species.get_reaction_dictionary()))
+        logger.info(
+            "reactions = %s", pprint.pformat(self.species_network.get_reaction_dictionary())
+        )
 
     @property
     def output(self) -> Output:
@@ -67,7 +69,9 @@ class InteriorAtmosphere:
 
         return self._output
 
-    def calculate_disequilibrium(self, *, planet: Planet, log_number_density: ArrayLike) -> None:
+    def calculate_disequilibrium(
+        self, *, state: ThermodynamicStateProtocol, log_number_moles: ArrayLike
+    ) -> None:
         """Computes the Gibbs free energy disequilibrium.
 
         This method calculates the Gibbs free energy difference (ΔG) for each considered reaction
@@ -76,12 +80,12 @@ class InteriorAtmosphere:
         from equilibrium in terms of energetic favourability.
 
         Args:
-            planet: Planet
-            log_number_density: Log number density
+            state: Thermodynamic state
+            log_number_moles: Log number of moles
         """
-        parameters: Parameters = Parameters.create(self.species, planet)
+        parameters: Parameters = Parameters.create(self.species_network, state)
         solution_array: Array = broadcast_initial_solution(
-            log_number_density, None, self.species.number_species, parameters.batch_size
+            log_number_moles, None, self.species_network.number_species, parameters.batch_size
         )
         # jax.debug.print("solution_array = {out}", out=solution_array)
 
@@ -90,12 +94,11 @@ class InteriorAtmosphere:
     def solve(
         self,
         *,
-        initial_log_number_density: Optional[ArrayLike] = None,
+        initial_log_number_moles: Optional[ArrayLike] = None,
         initial_log_stability: Optional[ArrayLike] = None,
-        planet: Optional[Planet] = None,
+        state: Optional[ThermodynamicStateProtocol] = None,
         fugacity_constraints: Optional[Mapping[str, FugacityConstraintProtocol]] = None,
         mass_constraints: Optional[Mapping[str, ArrayLike]] = None,
-        total_pressure_constraint: Optional[ArrayLike] = None,
         solver_parameters: Optional[SolverParameters] = None,
         solver_type: Literal["basic", "robust"] = "robust",
         solver_recompile: bool = False,
@@ -113,29 +116,23 @@ class InteriorAtmosphere:
         fast and will reuse cached compilation artifacts.
 
         Args:
-            initial_log_number_density: Initial log number density. Defaults to ``None``.
+            initial_log_number_moles: Initial log number of moles. Defaults to ``None``.
             initial_log_stability: Initial log stability. Defaults to ``None``.
-            planet: Planet. Defaults to ``None``.
+            state: Thermodynamic state. Defaults to ``None``.
             fugacity_constraints: Fugacity constraints. Defaults to ``None``.
             mass_constraints: Mass constraints. Defaults to ``None``.
-            total_pressure_constraint: Total pressure constraint. Defaults to ``None``.
             solver_parameters: Solver parameters. Defaults to ``None``.
             solver_type: Build a basic (faster) or a robust (slower) solver. Defaults to
                 ``robust``.
             solver_recompile: Force recompilation of the solver. Defaults to ``False``.
         """
         parameters: Parameters = Parameters.create(
-            self.species,
-            planet,
-            fugacity_constraints,
-            mass_constraints,
-            total_pressure_constraint,
-            solver_parameters,
+            self.species_network, state, fugacity_constraints, mass_constraints, solver_parameters
         )
         base_solution_array: Array = broadcast_initial_solution(
-            initial_log_number_density,
+            initial_log_number_moles,
             initial_log_stability,
-            self.species.number_species,
+            self.species_network.number_species,
             parameters.batch_size,
         )
         # jax.debug.print("base_solution_array = {out}", out=base_solution_array)
@@ -244,7 +241,7 @@ def _broadcast_component(
 
 
 def broadcast_initial_solution(
-    initial_log_number_density: Optional[ArrayLike],
+    initial_log_number_moles: Optional[ArrayLike],
     initial_log_stability: Optional[ArrayLike],
     number_of_species: int,
     batch_size: int,
@@ -254,7 +251,7 @@ def broadcast_initial_solution(
     ``D = number_of_species + number_of_stability``, i.e. the total number of solution quantities
 
     Args:
-        initial_log_number_density: Initial log number density or ``None``
+        initial_log_number_moles: Initial log number moles or ``None``
         initial_log_stability: Initial log stability or ``None``
         number_of_species: Number of species
         batch_size: Batch size
@@ -262,12 +259,12 @@ def broadcast_initial_solution(
     Returns:
         Initial solution with shape ``(batch_size, solution)``
     """
-    number_density: NpFloat = _broadcast_component(
-        initial_log_number_density,
-        INITIAL_LOG_NUMBER_DENSITY,
+    number_moles: NpFloat = _broadcast_component(
+        initial_log_number_moles,
+        INITIAL_LOG_NUMBER_MOLES,
         number_of_species,
         batch_size,
-        name="initial_log_number_density",
+        name="initial_log_number_moles",
     )
     stability: NpFloat = _broadcast_component(
         initial_log_stability,
@@ -277,4 +274,4 @@ def broadcast_initial_solution(
         name="initial_log_stability",
     )
 
-    return jnp.concatenate((number_density, stability), axis=-1)
+    return jnp.concatenate((number_moles, stability), axis=-1)

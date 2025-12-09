@@ -18,30 +18,21 @@ All gas species
    * - Name
      - Units
      - Description
-   * - atmosphere_mass
+   * - gas_mass
      - kg
-     - Mass in the atmosphere
-   * - atmosphere_moles
-     - moles
-     - Number of moles in the atmosphere
-   * - atmosphere_number
-     - molecules
-     - Number of molecules in the atmosphere
-   * - atmosphere_number_density
-     - molecules m\ :math:`^{-3}`
-     - Number density in the atmosphere
+     - Mass in the gas
+   * - gas_number
+     - mol
+     - Number of moles in the gas
+   * - gas_number_density
+     - mol m\ :math:`^{-3}`
+     - Number density in the gas
    * - dissolved_mass
      - kg
      - Mass dissolved in the melt
-   * - dissolved_moles
-     - moles
-     - Number of moles in the melt
    * - dissolved_number
-     - molecules
-     - Number of molecules in the melt
-   * - dissolved_number_density
-     - molecules m\ :math:`^{-3}`
-     - Number density in the melt
+     - mol
+     - Number of moles in the melt
    * - dissolved_ppmw
      - kg kg\ :math:`^{-1}` (ppm by weight)
      - Dissolved mass relative to melt mass
@@ -52,7 +43,7 @@ All gas species
      - dimensionless
      - Fugacity relative to (partial) pressure
    * - molar_mass
-     - kg mole\ :math:`^{-1}`
+     - kg mol\ :math:`^{-1}`
      - Molar mass
    * - pressure
      - bar
@@ -60,18 +51,15 @@ All gas species
    * - total_mass
      - kg
      - Mass in all reservoirs
-   * - total_moles
-     - moles
-     - Number of moles in all reservoirs
    * - total_number
-     - molecules
-     - Number of molecules in all reservoirs
-   * - total_number_density
-     - molecules m\ :math:`^{-3}`
-     - Number density in all reservoirs
+     - mol
+     - Number of moles in all reservoirs
    * - volume_mixing_ratio
-     - dimensionless
-     - Volume mixing ratio (atmosphere)
+     - mol mol\ :math:`^{-1}`
+     - Volume mixing ratio in the gas
+   * - gas_mass_fraction
+     - kg kg\ :math:`^{-1}`
+     - Mass fraction in the gas
 
 O2_g additional outputs
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -106,20 +94,14 @@ Species output have a dictionary key associated with the species name and its st
      - dimensionless
      - Activity
    * - molar_mass
-     - kg mole\ :math:`^{-1}`
+     - kg mol\ :math:`^{-1}`
      - Molar mass
    * - total_mass
      - kg
      - Mass
-   * - total_moles
-     - moles
-     - Number of moles
    * - total_number
-     - molecules
-     - Number of molecules
-   * - total_number_density
-     - molecules m\ :math:`^{-3}`
-     - Number density
+     - mol
+     - Number of moles
 
 Elements
 --------
@@ -133,73 +115,71 @@ Element outputs have a dictionary key associated with the element name with an `
    * - Name
      - Units
      - Description
-   * - atmosphere_mass
+   * - gas_mass
      - kg
-     - Mass in the atmosphere
-   * - atmosphere_moles
-     - moles
-     - Number of moles in the atmosphere
-   * - atmosphere_number
-     - atoms
-     - Number of atoms in the atmosphere
-   * - atmosphere_number_density
-     - atoms m\ :math:`^{-3}`
-     - Number density in the atmosphere
+     - Mass in the gas
+   * - gas_number
+     - mol
+     - Number of moles in the gas
+   * - gas_number_density
+     - mol m\ :math:`^{-3}`
+     - Number density in the gas
    * - condensed_mass
      - kg
      - Mass in condensed species
-   * - condensed_moles
-     - moles
-     - Number of moles in condensed species
    * - condensed_number
-     - atoms
-     - Number of atoms in condensed species
-   * - condensed_number_density
-     - atoms m\ :math:`^{-3}`
-     - Number density in condensed species
+     - mol
+     - Number of moles in condensed species
    * - degree_of_condensation
      - dimensionless
      - Degree of condensation
    * - dissolved_mass
      - kg
      - Mass dissolved in the melt
-   * - dissolved_moles
-     - moles
-     - Number of moles in the melt
    * - dissolved_number
-     - atoms
-     - Number of atoms in the melt
-   * - dissolved_number_density
-     - atoms m\ :math:`^{-3}`
-     - Number density in the melt
+     - mol
+     - Number of moles in the melt
    * - logarithmic_abundance
      - dimensionless
      - Logarithmic abundance
    * - molar_mass
-     - kg mole\ :math:`^{-1}`
+     - kg mol\ :math:`^{-1}`
      - Molar mass
    * - total_mass
      - kg
      - Mass in all reservoirs
-   * - total_moles
-     - moles
-     - Number of moles in all reservoirs
    * - total_number
-     - atoms
-     - Number of atoms in all reservoirs
-   * - total_number_density
-     - atoms m\ :math:`^{-3}`
-     - Number density in all reservoirs
+     - mol
+     - Number of moles in all reservoirs
    * - volume_mixing_ratio
-     - dimensionless
-     - Volume mixing ratio (atmosphere)
+     - mol mol\ :math:`^{-1}`
+     - Volume mixing ratio
+   * - gas_mass_fraction
+     - kg kg\ :math:`^{-1}`
+     - Mass fraction in the gas
 
-Planet
-------
+State
+-----
 
-The planet output has a dictionary key of `planet`.
+The thermodynamic state output has a dictionary key of `state`. The exact set of outputs depends on the type of thermodynamic state being considered:
 
-.. list-table:: Outputs for planet
+.. list-table:: Outputs for all thermodynamic states
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Name
+     - Units
+     - Description
+   * - temperature
+     - K
+     - Temperature
+   * - pressure
+     - bar
+     - Pressure
+
+For a planet, the thermodynamic state provides the following additional outputs:
+
+.. list-table:: Planet-specific outputs
    :widths: 25 25 50
    :header-rows: 1
 
@@ -233,60 +213,112 @@ The planet output has a dictionary key of `planet`.
    * - surface_radius
      - m
      - Radius of the planetary surface
-   * - surface_temperature
-     - K
-     - Temperature at the planetary surface
 
-Atmosphere
-----------
+Instead, a generic thermodynamic state has the following additional outputs:
 
-The atmosphere output has a dictionary key of `atmosphere`.
-
-.. list-table:: Outputs for atmosphere
+.. list-table:: Thermodynamic state-specific outputs
    :widths: 25 25 50
    :header-rows: 1
 
    * - Name
      - Units
      - Description
-   * - species_moles
-     - moles
-     - Number of moles of species
+   * - mass
+     - kg
+     - Mass of the condensed phase
+   * - melt_fraction
+     - kg kg\ :math:`^{-1}`
+     - Fraction of the condensed phase that is molten
+   * - melt_mass
+     - kg
+     - Mass of the molten condensed phase
+   * - solid_mass
+     - kg
+     - Mass of the solid condensed phase
+
+Gas phase (totals)
+------------------
+
+The gas phase output has a dictionary key of `gas`.
+
+.. list-table:: Outputs for gas
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Name
+     - Units
+     - Description
    * - species_number
-     - molecules
-     - Number of molecules of species
+     - mol
+     - Number of moles of species
    * - species_number_density
-     - molecules m\ :math:`^{-3}`
+     - mol m\ :math:`^{-3}`
      - Number density of species
    * - mass
      - kg
      - Mass
    * - molar_mass
-     - kg mole\ :math:`^{-1}`
+     - kg mol\ :math:`^{-1}`
      - Molar mass
-   * - pressure
-     - bar
-     - Total pressure of the atmosphere
-   * - volume
-     - m\ :math:`^{3}`
-     - Volume of the atmosphere
-   * - element_moles
-     - moles
-     - Number of moles of elements
    * - element_number
-     - atoms
-     - Number of atoms of elements
+     - mol
+     - Number of moles of elements
    * - element_number_density
-     - atoms m\ :math:`^{-3}`
+     - mol m\ :math:`^{-3}`
      - Number density of elements
-   * - temperature
-     - K
-     - Temperature of the atmosphere
-  
+   * - volume
+     - m\ :math:`^3`
+     - Volume from the ideal gas law
+
+Constraints
+-----------
+
+The constraints have a dictionary key of `constraints`.
+
+.. list-table:: Outputs for constraints
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Name
+     - Units
+     - Description
+   * - [element]\_number
+     - mol
+     - Number of moles of "element"
+   * - [element]\_mass
+     - kg
+     - Mass of "element"
+   * - [species]\_fugacity
+     - bar
+     - Fugacity of species
+
+Solver
+------
+
+The solver has a dictionary key of `solver`.
+
+.. list-table:: Outputs for solver
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Name
+     - Type
+     - Description
+   * - status
+     - Boolean
+     - Indicates whether the solver terminated successfully according to its internal convergence criteria
+   * - steps
+     - Integer
+     - Number of iterations taken during the successful attempt
+   * - attempts
+     - Integer
+     - Total number of solver attempts (e.g., in a multistart procedure).
+   * - converged
+     - Boolean
+     - Indicates whether the solution meets the objective-based convergence criteria (independent of solver status).
+
 Other output
 ------------
 
-- constraints: Applied elemental mass and/or species fugacity constraints
-- raw: Raw solution from the solver, i.e. number densities and stabilities
+- raw: Raw solution from the solver, i.e. number of moles and active stabilities
 - residual: Residuals of the reaction network and mass balance
-- solver: Solver quantities

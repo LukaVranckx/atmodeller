@@ -23,8 +23,8 @@ import numpy as np
 from jaxtyping import ArrayLike
 
 from atmodeller import __version__, debug_logger
-from atmodeller.classes import InteriorAtmosphere
-from atmodeller.containers import ConstantFugacityConstraint, Planet, Species, SpeciesCollection
+from atmodeller.classes import EquilibriumModel
+from atmodeller.containers import ChemicalSpecies, FixedFugacityConstraint, Planet, SpeciesNetwork
 from atmodeller.interfaces import FugacityConstraintProtocol, SolubilityProtocol
 from atmodeller.output import Output
 from atmodeller.solubility import get_solubility_models
@@ -44,37 +44,37 @@ TOLERANCE: float = 5.0e-2
 
 solubility_models: Mapping[str, SolubilityProtocol] = get_solubility_models()
 
-H2O_g: Species = Species.create_gas("H2O", solubility=solubility_models["H2O_peridotite_sossi23"])
-H2_g: Species = Species.create_gas("H2")
-O2_g: Species = Species.create_gas("O2")
-species: SpeciesCollection = SpeciesCollection((H2O_g, H2_g, O2_g))
+H2O_g: ChemicalSpecies = ChemicalSpecies.create_gas(
+    "H2O", solubility=solubility_models["H2O_peridotite_sossi23"]
+)
+H2_g: ChemicalSpecies = ChemicalSpecies.create_gas("H2")
+O2_g: ChemicalSpecies = ChemicalSpecies.create_gas("O2")
+species: SpeciesNetwork = SpeciesNetwork((H2O_g, H2_g, O2_g))
 
-gas_HO_system: InteriorAtmosphere = InteriorAtmosphere(species)
+gas_HO_model: EquilibriumModel = EquilibriumModel(species)
 
 
 def test_version():
     """Test version."""
-    assert __version__ == "0.10.0"
+    assert __version__ == "0.11.0"
 
 
 def test_H2O(helper) -> None:
     """Tests a single species (H2O)."""
 
-    H2O_g: Species = Species.create_gas(
+    H2O_g: ChemicalSpecies = ChemicalSpecies.create_gas(
         "H2O", solubility=solubility_models["H2O_peridotite_sossi23"]
     )
-    species: SpeciesCollection = SpeciesCollection((H2O_g,))
+    species: SpeciesNetwork = SpeciesNetwork((H2O_g,))
     planet: Planet = Planet()
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
+    model: EquilibriumModel = EquilibriumModel(species)
 
     oceans: ArrayLike = 2
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg}
 
-    interior_atmosphere.solve(
-        planet=planet, mass_constraints=mass_constraints, solver_type="basic"
-    )
-    output: Output = interior_atmosphere.output
+    model.solve(state=planet, mass_constraints=mass_constraints, solver_type="basic")
+    output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     target: dict[str, float] = {"H2O_g": 1.0312913336898137}
@@ -85,19 +85,18 @@ def test_H2O(helper) -> None:
 def test_H_O(helper) -> None:
     """Tests H2-H2O at the IW buffer by applying an oxygen abundance constraint."""
 
-    species: SpeciesCollection = SpeciesCollection.create(("H2_g", "H2O_g", "O2_g"))
+    species: SpeciesNetwork = SpeciesNetwork.create(("H2_g", "H2O_g", "O2_g"))
+
     planet: Planet = Planet()
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
+    model: EquilibriumModel = EquilibriumModel(species)
 
     oceans: ArrayLike = 1
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     o_kg: ArrayLike = 6.25774e20
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg, "O": o_kg}
 
-    interior_atmosphere.solve(
-        planet=planet, mass_constraints=mass_constraints, solver_type="basic"
-    )
-    output: Output = interior_atmosphere.output
+    model.solve(state=planet, mass_constraints=mass_constraints, solver_type="basic")
+    output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     fastchem_result: dict[str, float] = {
@@ -105,6 +104,8 @@ def test_H_O(helper) -> None:
         "H2_g": 73.84378192,
         "O2_g": 8.91399329e-08,
     }
+
+    output.to_excel("test_H_O")
 
     assert helper.isclose(solution, fastchem_result, log=True, rtol=TOLERANCE, atol=TOLERANCE)
 
@@ -120,13 +121,13 @@ def test_H_fO2(helper) -> None:
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg}
 
-    gas_HO_system.solve(
-        planet=planet,
+    gas_HO_model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
         solver_type="basic",
     )
-    output: Output = gas_HO_system.output
+    output: Output = gas_HO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     target: dict[str, float] = {
@@ -144,16 +145,16 @@ def test_H_fO2_fH2(helper) -> None:
     planet: Planet = Planet()
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {
         "O2_g": IronWustiteBuffer(np.array([-1, 0, 1])),
-        "H2_g": ConstantFugacityConstraint(np.array([1.0e-8, 1.0e-7, 1.0e-6])),
+        "H2_g": FixedFugacityConstraint(np.array([1.0e-8, 1.0e-7, 1.0e-6])),
     }
 
-    gas_HO_system.solve(
-        planet=planet,
+    gas_HO_model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         solver_type="basic",
         solver_recompile=True,
     )
-    output: Output = gas_HO_system.output
+    output: Output = gas_HO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     target: dict[str, ArrayLike] = {
@@ -170,23 +171,23 @@ def test_H_fO2_batch_temperature(helper) -> None:
 
     # Number of surface temperatures is different to number of species to test array shapes work.
     surface_temperatures: NpFloat = np.array([1500, 2000, 2500, 3000])
-    planet: Planet = Planet(surface_temperature=surface_temperatures)
+    planet: Planet = Planet(temperature=surface_temperatures)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {
         "O2_g": IronWustiteBuffer(),
-        "H2_g": ConstantFugacityConstraint(np.nan),
+        "H2_g": FixedFugacityConstraint(np.nan),
     }
     oceans: float = 1
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg}
 
-    gas_HO_system.solve(
-        planet=planet,
+    gas_HO_model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
         solver_type="basic",
         solver_recompile=True,
     )
-    output: Output = gas_HO_system.output
+    output: Output = gas_HO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     target: dict[str, ArrayLike] = {
@@ -233,14 +234,14 @@ def test_H_fO2_batch_fO2_shift(helper) -> None:
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg}
 
-    gas_HO_system.solve(
-        planet=planet,
+    gas_HO_model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
         solver_type="basic",
         solver_recompile=True,
     )
-    output: Output = gas_HO_system.output
+    output: Output = gas_HO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     target: dict[str, ArrayLike] = {
@@ -285,14 +286,14 @@ def test_H_fO2_batch_H_mass(helper) -> None:
     # Set up a range of H masses
     mass_constraints: dict[str, ArrayLike] = {"H": np.array([h_kg, 10 * h_kg, 100 * h_kg])}
 
-    gas_HO_system.solve(
-        planet=planet,
+    gas_HO_model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
         solver_type="basic",
         solver_recompile=True,
     )
-    output: Output = gas_HO_system.output
+    output: Output = gas_HO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     target: dict[str, ArrayLike] = {

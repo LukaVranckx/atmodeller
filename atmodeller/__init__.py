@@ -16,7 +16,7 @@
 #
 """Package level variables and initialises the package logger"""
 
-__version__: str = "0.10.0"
+__version__: str = "0.11.0"
 
 import logging
 import os
@@ -127,13 +127,14 @@ def debug_file_logger(filename) -> logging.Logger:
     return package_logger
 
 
-from atmodeller.classes import InteriorAtmosphere  # noqa: E402, F401
+from atmodeller.classes import EquilibriumModel  # noqa: E402, F401
 from atmodeller.containers import (  # noqa: E402, F401
-    ConstantFugacityConstraint,
+    ChemicalSpecies,
+    FixedFugacityConstraint,
     Planet,
     SolverParameters,
-    Species,
-    SpeciesCollection,
+    SpeciesNetwork,
+    ThermodynamicState,
 )
 from atmodeller.utilities import (  # noqa: E402, F401
     bulk_silicate_earth_abundances,

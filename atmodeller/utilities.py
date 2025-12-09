@@ -25,10 +25,9 @@ import logging
 from typing import Optional
 
 import equinox as eqx
-import jax.numpy as jnp
 import numpy as np
-from jaxmod.constants import BOLTZMANN_CONSTANT_BAR, OCEAN_MASS_H2
-from jaxtyping import Array, ArrayLike
+from jaxmod.constants import OCEAN_MASS_H2
+from jaxtyping import ArrayLike
 
 from atmodeller.type_aliases import Scalar
 
@@ -81,25 +80,6 @@ class ExperimentalCalibration(eqx.Module):
             self.log10_fO2_min = float(log10_fO2_min)
         if log10_fO2_max is not None:
             self.log10_fO2_max = float(log10_fO2_max)
-
-
-def get_log_number_density_from_log_pressure(
-    log_pressure: ArrayLike, temperature: ArrayLike
-) -> Array:
-    """Gets log number density from log pressure.
-
-    Args:
-        log_pressure: Log pressure
-        temperature: Temperature in K
-
-    Returns:
-        Log number density
-    """
-    log_number_density: Array = (
-        -jnp.log(BOLTZMANN_CONSTANT_BAR) - jnp.log(temperature) + log_pressure
-    )
-
-    return log_number_density
 
 
 def bulk_silicate_earth_abundances() -> dict[str, dict[str, float]]:

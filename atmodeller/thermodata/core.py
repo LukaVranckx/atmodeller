@@ -572,7 +572,7 @@ critical_data_dictionary: dict[str, CriticalData] = critical_data_source.create_
 """
 
 
-class IndividualSpeciesData(eqx.Module):
+class ChemicalSpeciesData(eqx.Module):
     """Individual species data
 
     Args:

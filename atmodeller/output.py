@@ -84,11 +84,11 @@ class OutputDisequilibrium(Output):
         # To compute the limiting reactant/product in each reaction we need to know the
         # availability of each species. We will ignore condensates later because their stability
         # criteria prevents a simple calculation of what is limiting the reaction.
-        number_density: NpFloat = self.number_density()
-        # logger.debug("number_density = %s", number_density)
-        number_fraction: NpFloat = number_density / np.sum(number_density, axis=1, keepdims=True)
+        number_fraction: NpFloat = self.number_moles / np.sum(
+            self.number_moles, axis=1, keepdims=True
+        )
         # logger.debug("number_fraction = %s", number_fraction)
-        reaction_matrix: NpFloat = self.parameters.species.reaction_matrix
+        reaction_matrix: NpFloat = self.parameters.species_network.reaction_matrix
         # logger.debug("reaction_matrix = %s", reaction_matrix)
 
         out: dict[str, NpArray] = {}
@@ -190,8 +190,8 @@ class OutputSolution(Output):
         out: dict[str, dict[str, NpArray]] = super().asdict()
 
         # Temperature and pressure have already been expanded to the number of solutions
-        temperature: NpFloat = out["planet"]["surface_temperature"]
-        pressure: NpFloat = out["atmosphere"]["pressure"]
+        temperature: NpFloat = out["state"]["temperature"]
+        pressure: NpFloat = out["state"]["pressure"]
 
         out["constraints"] = {}
         out["constraints"] |= broadcast_arrays_in_dict(
@@ -201,10 +201,6 @@ class OutputSolution(Output):
             self.parameters.fugacity_constraints.asdict(temperature, pressure),
             self.number_solutions,
         )
-        out["constraints"] |= broadcast_arrays_in_dict(
-            self.parameters.total_pressure_constraint.asdict(), self.number_solutions
-        )
-
         out["residual"] = self.residual_asdict()  # type: ignore since keys are int
 
         out["solver"] = {
@@ -223,7 +219,7 @@ class OutputSolution(Output):
         """Gets the output in a dictionary of dataframes.
 
         Args:
-            drop_unsuccessful: Drop models that did not solve. Defaults to False.
+            drop_unsuccessful: Drop models that did not solve. Defaults to ``False``.
 
         Returns:
             Output in a dictionary of dataframes
@@ -243,11 +239,11 @@ class OutputSolution(Output):
         """Writes the output to an Excel file.
 
         Compared to the base class, this highlights rows where the solver failed to find a
-        a solution if `drop_successful = False`.
+        a solution if ``drop_successful = False``.
 
         Args:
-            file_prefix: Prefix of the output file. Defaults to atmodeller_out.
-            drop_unsuccessful: Drop models that did not solve. Defaults to False.
+            file_prefix: Prefix of the output file. Defaults to ``atmodeller_out``.
+            drop_unsuccessful: Drop models that did not solve. Defaults to ``False``.
         """
         logger.info("Writing output to excel")
         out: dict[str, pd.DataFrame] = self.to_dataframes(drop_unsuccessful)
@@ -284,8 +280,8 @@ class OutputSolution(Output):
         """Writes the output to a pickle file.
 
         Args:
-            file_prefix: Prefix of the output file. Defaults to atmodeller_out.
-            drop_unsuccessful: Drop models that did not solve. Defaults to False.
+            file_prefix: Prefix of the output file. Defaults to ``atmodeller_out``.
+            drop_unsuccessful: Drop models that did not solve. Defaults to ``False``.
         """
         logger.info("Writing output to pickle")
         out: dict[str, pd.DataFrame] = self.to_dataframes(drop_unsuccessful)

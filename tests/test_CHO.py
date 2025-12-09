@@ -24,8 +24,8 @@ import pytest
 from jaxtyping import ArrayLike
 
 from atmodeller import debug_logger
-from atmodeller.classes import InteriorAtmosphere
-from atmodeller.containers import Planet, Species, SpeciesCollection
+from atmodeller.classes import EquilibriumModel
+from atmodeller.containers import ChemicalSpecies, Planet, SpeciesNetwork
 from atmodeller.interfaces import FugacityConstraintProtocol, SolubilityProtocol
 from atmodeller.output import Output
 from atmodeller.solubility import get_solubility_models
@@ -44,26 +44,28 @@ TOLERANCE: float = 5.0e-2
 
 solubility_models: Mapping[str, SolubilityProtocol] = get_solubility_models()
 
-species: SpeciesCollection = SpeciesCollection.create(
+species: SpeciesNetwork = SpeciesNetwork.create(
     ("H2_g", "H2O_g", "CO_g", "CO2_g", "CH4_g", "O2_g")
 )
-gas_CHO_system: InteriorAtmosphere = InteriorAtmosphere(species)
+gas_CHO_model: EquilibriumModel = EquilibriumModel(species)
 
 
 def test_H_and_C(helper) -> None:
     """Tests H2-H2O and CO-CO2 with H2O and CO2 solubility."""
 
-    H2O_g: Species = Species.create_gas(
+    H2O_g: ChemicalSpecies = ChemicalSpecies.create_gas(
         "H2O", solubility=solubility_models["H2O_peridotite_sossi23"]
     )
-    H2_g: Species = Species.create_gas("H2")
-    O2_g: Species = Species.create_gas("O2")
-    CO_g: Species = Species.create_gas("CO")
-    CO2_g: Species = Species.create_gas("CO2", solubility=solubility_models["CO2_basalt_dixon95"])
+    H2_g: ChemicalSpecies = ChemicalSpecies.create_gas("H2")
+    O2_g: ChemicalSpecies = ChemicalSpecies.create_gas("O2")
+    CO_g: ChemicalSpecies = ChemicalSpecies.create_gas("CO")
+    CO2_g: ChemicalSpecies = ChemicalSpecies.create_gas(
+        "CO2", solubility=solubility_models["CO2_basalt_dixon95"]
+    )
 
-    species: SpeciesCollection = SpeciesCollection((H2O_g, H2_g, O2_g, CO_g, CO2_g))
+    species: SpeciesNetwork = SpeciesNetwork((H2O_g, H2_g, O2_g, CO_g, CO2_g))
     planet: Planet = Planet()
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
+    model: EquilibriumModel = EquilibriumModel(species)
 
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {"O2_g": IronWustiteBuffer()}
 
@@ -73,13 +75,13 @@ def test_H_and_C(helper) -> None:
     c_kg: ArrayLike = ch_ratio * h_kg
     mass_constraints: dict[str, ArrayLike] = {"C": c_kg, "H": h_kg}
 
-    interior_atmosphere.solve(
-        planet=planet,
+    model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
         solver_type="basic",
     )
-    output: Output = interior_atmosphere.output
+    output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     target: dict[str, float] = {
@@ -100,20 +102,20 @@ def test_CHO_reduced(helper) -> None:
     Similar to :cite:p:`BHS22{Table E, row 1}`.
     """
 
-    planet: Planet = Planet(surface_temperature=1400)
+    planet: Planet = Planet(temperature=1400)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {"O2_g": IronWustiteBuffer(-2)}
     oceans: ArrayLike = 3
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     c_kg: ArrayLike = 1 * h_kg
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg, "C": c_kg}
 
-    gas_CHO_system.solve(
-        planet=planet,
+    gas_CHO_model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
         solver_type="basic",
     )
-    output: Output = gas_CHO_system.output
+    output: Output = gas_CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -134,17 +136,17 @@ def test_CHO_IW(helper) -> None:
     Similar to :cite:p:`BHS22{Table E, row 2}`.
     """
 
-    planet: Planet = Planet(surface_temperature=1400)
+    planet: Planet = Planet(temperature=1400)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {"O2_g": IronWustiteBuffer(0.5)}
     oceans: ArrayLike = 3
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     c_kg: ArrayLike = 1 * h_kg
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg, "C": c_kg}
 
-    gas_CHO_system.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
+    gas_CHO_model.solve(
+        state=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
     )
-    output: Output = gas_CHO_system.output
+    output: Output = gas_CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -176,17 +178,17 @@ def test_CHO_oxidised(helper) -> None:
     Similar to :cite:p:`BHS22{Table E, row 3}`.
     """
 
-    planet: Planet = Planet(surface_temperature=1400)
+    planet: Planet = Planet(temperature=1400)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {"O2_g": IronWustiteBuffer(2)}
     oceans: ArrayLike = 1
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     c_kg: ArrayLike = 0.1 * h_kg
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg, "C": c_kg}
 
-    gas_CHO_system.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
+    gas_CHO_model.solve(
+        state=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
     )
-    output: Output = gas_CHO_system.output
+    output: Output = gas_CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -208,7 +210,7 @@ def test_CHO_highly_oxidised(helper) -> None:
     Similar to :cite:p:`BHS22{Table E, row 4}`.
     """
 
-    planet: Planet = Planet(surface_temperature=1400)
+    planet: Planet = Planet(temperature=1400)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {"O2_g": IronWustiteBuffer(4)}
     oceans: ArrayLike = 1
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
@@ -217,10 +219,10 @@ def test_CHO_highly_oxidised(helper) -> None:
     # o_kg: ArrayLike = 3.25196e21
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg, "C": c_kg}
 
-    gas_CHO_system.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
+    gas_CHO_model.solve(
+        state=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
     )
-    output: Output = gas_CHO_system.output
+    output: Output = gas_CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -238,17 +240,17 @@ def test_CHO_highly_oxidised(helper) -> None:
 def test_CHO_middle_temperature(helper) -> None:
     """Tests C-H-O system at 873 K"""
 
-    planet: Planet = Planet(surface_temperature=873)
+    planet: Planet = Planet(temperature=873)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {"O2_g": IronWustiteBuffer()}
     oceans: ArrayLike = 1
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     c_kg: ArrayLike = 1 * h_kg
     mass_constraints: dict[str, ArrayLike] = {"C": c_kg, "H": h_kg}
 
-    gas_CHO_system.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
+    gas_CHO_model.solve(
+        state=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
     )
-    output: Output = gas_CHO_system.output
+    output: Output = gas_CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -266,7 +268,7 @@ def test_CHO_middle_temperature(helper) -> None:
 def test_CHO_low_temperature(helper) -> None:
     """Tests C-H-O system at 450 K"""
 
-    planet: Planet = Planet(surface_temperature=450)
+    planet: Planet = Planet(temperature=450)
     # This is a trick to keep the same argument structure and avoid JAX recompilation, even though
     # for this case we want to turn off the O2_g constraint.
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {
@@ -278,10 +280,10 @@ def test_CHO_low_temperature(helper) -> None:
     o_kg: ArrayLike = 1.02999e20
     mass_constraints: dict[str, ArrayLike] = {"C": c_kg, "H": h_kg, "O": o_kg}
 
-    gas_CHO_system.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
+    gas_CHO_model.solve(
+        state=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
     )
-    output: Output = gas_CHO_system.output
+    output: Output = gas_CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
