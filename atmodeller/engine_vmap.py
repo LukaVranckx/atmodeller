@@ -27,27 +27,23 @@ handled by the :mod:`~atmodeller.solvers` module.
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
 
 import equinox as eqx
-from jaxtyping import Array, ArrayLike
+from jaxtyping import Array
 
 from atmodeller.containers import Parameters
 from atmodeller.engine import (
     get_atmosphere_log_molar_mass,
-    get_atmosphere_log_volume,
-    get_element_density,
-    get_element_density_in_melt,
+    get_element_moles,
+    get_element_moles_in_melt,
     get_log_activity,
-    get_pressure_from_log_number_density,
     get_reactions_only_mask,
-    get_species_density_in_melt,
+    get_species_moles_in_melt,
     get_species_ppmw_in_melt,
     get_total_pressure,
     objective_function,
 )
-from atmodeller.solvers import LOG_NUMBER_DENSITY_VMAP_AXES, vmap_axes_spec
-from atmodeller.utilities import get_log_number_density_from_log_pressure
+from atmodeller.solvers import LOG_NUMBER_MOLES_VMAP_AXES, vmap_axes_spec
 
 
 @dataclass
@@ -58,7 +54,7 @@ class VmappedFunctions:
     masks, etc.) with :func:`equinox.filter_vmap` so they can be evaluated efficiently over batched
     inputs.
 
-    The primary assumption is that ``log_number_density`` inputs are already batched along axis 0.
+    The primary assumption is that ``log_number_moles`` inputs are already batched along axis 0.
     The ``in_axes`` specifications for all ``vmap`` calls are precomputed at initialisation from
     the provided ``parameters`` object, ensuring consistent vectorisation behavior across all
     functions.
@@ -75,14 +71,11 @@ class VmappedFunctions:
 
     # Precompiled vmapped functions
     _get_atmosphere_log_molar_mass: Callable
-    _get_atmosphere_log_volume: Callable
-    _get_element_density: Callable
-    _get_element_density_in_melt: Callable
+    _get_element_moles: Callable
+    _get_element_moles_in_melt: Callable
     _get_log_activity: Callable
-    _get_log_number_density_from_log_pressure: Callable
-    _get_pressure_from_log_number_density: Callable
     _get_reactions_only_mask: Callable
-    _get_species_density_in_melt: Callable
+    _get_species_moles_in_melt: Callable
     _get_species_ppmw_in_melt: Callable
     _get_total_pressure: Callable
     _objective_function_vmap: Callable
@@ -92,42 +85,26 @@ class VmappedFunctions:
 
         # Compute axes specs once
         parameters_vmap_axes: Parameters = vmap_axes_spec(parameters)
-        temperature_vmap_axes: Literal[0, None] = vmap_axes_spec(parameters.planet.temperature)
 
         # Pre-build vmap wrappers
         self._get_atmosphere_log_molar_mass = eqx.filter_vmap(
             get_atmosphere_log_molar_mass,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
+            in_axes=(parameters_vmap_axes, LOG_NUMBER_MOLES_VMAP_AXES),
         )
 
-        self._get_atmosphere_log_volume = eqx.filter_vmap(
-            get_atmosphere_log_volume,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
+        self._get_element_moles = eqx.filter_vmap(
+            get_element_moles,
+            in_axes=(parameters_vmap_axes, LOG_NUMBER_MOLES_VMAP_AXES),
         )
 
-        self._get_element_density = eqx.filter_vmap(
-            get_element_density,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
-        )
-
-        self._get_element_density_in_melt = eqx.filter_vmap(
-            get_element_density_in_melt,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
+        self._get_element_moles_in_melt = eqx.filter_vmap(
+            get_element_moles_in_melt,
+            in_axes=(parameters_vmap_axes, LOG_NUMBER_MOLES_VMAP_AXES),
         )
 
         self._get_log_activity = eqx.filter_vmap(
             get_log_activity,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
-        )
-
-        self._get_log_number_density_from_log_pressure = eqx.filter_vmap(
-            get_log_number_density_from_log_pressure,
-            in_axes=(LOG_NUMBER_DENSITY_VMAP_AXES, temperature_vmap_axes),
-        )
-
-        self._get_pressure_from_log_number_density = eqx.filter_vmap(
-            get_pressure_from_log_number_density,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
+            in_axes=(parameters_vmap_axes, LOG_NUMBER_MOLES_VMAP_AXES),
         )
 
         self._get_reactions_only_mask = eqx.filter_vmap(
@@ -135,60 +112,49 @@ class VmappedFunctions:
             in_axes=(parameters_vmap_axes,),
         )
 
-        self._get_species_density_in_melt = eqx.filter_vmap(
-            get_species_density_in_melt,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
+        self._get_species_moles_in_melt = eqx.filter_vmap(
+            get_species_moles_in_melt,
+            in_axes=(parameters_vmap_axes, LOG_NUMBER_MOLES_VMAP_AXES),
         )
 
         self._get_species_ppmw_in_melt = eqx.filter_vmap(
             get_species_ppmw_in_melt,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
+            in_axes=(parameters_vmap_axes, LOG_NUMBER_MOLES_VMAP_AXES),
         )
 
         self._get_total_pressure = eqx.filter_vmap(
             get_total_pressure,
-            in_axes=(parameters_vmap_axes, LOG_NUMBER_DENSITY_VMAP_AXES),
+            in_axes=(parameters_vmap_axes, LOG_NUMBER_MOLES_VMAP_AXES),
         )
 
         self._objective_function_vmap = eqx.filter_vmap(
             objective_function,
-            in_axes=(LOG_NUMBER_DENSITY_VMAP_AXES, parameters_vmap_axes),
+            in_axes=(LOG_NUMBER_MOLES_VMAP_AXES, parameters_vmap_axes),
         )
 
-    def get_atmosphere_log_molar_mass(self, log_number_density: Array) -> Array:
-        return self._get_atmosphere_log_molar_mass(self.parameters, log_number_density)
+    def get_atmosphere_log_molar_mass(self, log_number_moles: Array) -> Array:
+        return self._get_atmosphere_log_molar_mass(self.parameters, log_number_moles)
 
-    def get_atmosphere_log_volume(self, log_number_density: Array) -> Array:
-        return self._get_atmosphere_log_volume(self.parameters, log_number_density)
+    def get_element_moles(self, log_number_moles: Array) -> Array:
+        return self._get_element_moles(self.parameters, log_number_moles)
 
-    def get_element_density(self, log_number_density: Array) -> Array:
-        return self._get_element_density(self.parameters, log_number_density)
+    def get_element_moles_in_melt(self, log_number_moles: Array) -> Array:
+        return self._get_element_moles_in_melt(self.parameters, log_number_moles)
 
-    def get_element_density_in_melt(self, log_number_density: Array) -> Array:
-        return self._get_element_density_in_melt(self.parameters, log_number_density)
-
-    def get_log_activity(self, log_number_density: Array) -> Array:
-        return self._get_log_activity(self.parameters, log_number_density)
-
-    def get_log_number_density_from_log_pressure(
-        self, log_pressure: ArrayLike, temperature: ArrayLike
-    ) -> Array:
-        return self._get_log_number_density_from_log_pressure(log_pressure, temperature)
-
-    def get_pressure_from_log_number_density(self, log_number_density: Array) -> Array:
-        return self._get_pressure_from_log_number_density(self.parameters, log_number_density)
+    def get_log_activity(self, log_number_moles: Array) -> Array:
+        return self._get_log_activity(self.parameters, log_number_moles)
 
     def get_reactions_only_mask(self) -> Array:
         return self._get_reactions_only_mask(self.parameters)
 
-    def get_species_density_in_melt(self, log_number_density: Array) -> Array:
-        return self._get_species_density_in_melt(self.parameters, log_number_density)
+    def get_species_moles_in_melt(self, log_number_moles: Array) -> Array:
+        return self._get_species_moles_in_melt(self.parameters, log_number_moles)
 
-    def get_species_ppmw_in_melt(self, log_number_density: Array) -> Array:
-        return self._get_species_ppmw_in_melt(self.parameters, log_number_density)
+    def get_species_ppmw_in_melt(self, log_number_moles: Array) -> Array:
+        return self._get_species_ppmw_in_melt(self.parameters, log_number_moles)
 
-    def get_total_pressure(self, log_number_density: Array) -> Array:
-        return self._get_total_pressure(self.parameters, log_number_density)
+    def get_total_pressure(self, log_number_moles: Array) -> Array:
+        return self._get_total_pressure(self.parameters, log_number_moles)
 
     def objective_function(self, solution: Array) -> Array:
         return self._objective_function_vmap(solution, self.parameters)

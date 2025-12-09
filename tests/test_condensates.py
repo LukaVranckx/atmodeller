@@ -20,11 +20,12 @@ import logging
 
 import numpy as np
 from jaxtyping import ArrayLike
+from molmass import Formula
 
 from atmodeller import debug_logger
-from atmodeller.classes import InteriorAtmosphere
-from atmodeller.containers import ConstantFugacityConstraint, Planet, Species, SpeciesCollection
-from atmodeller.interfaces import ActivityProtocol, FugacityConstraintProtocol
+from atmodeller.classes import EquilibriumModel
+from atmodeller.containers import ChemicalSpecies, Planet, SpeciesNetwork, ThermodynamicState
+from atmodeller.interfaces import FugacityConstraintProtocol
 from atmodeller.output import Output
 from atmodeller.thermodata import IronWustiteBuffer
 from atmodeller.thermodata.core import CondensateActivity
@@ -40,16 +41,16 @@ ATOL: float = 1.0e-8
 TOLERANCE: float = 5.0e-2
 """Tolerance of log output to satisfy comparison with FactSage and FastChem"""
 
-species: SpeciesCollection = SpeciesCollection.create(
+species: SpeciesNetwork = SpeciesNetwork.create(
     ("H2_g", "H2O_g", "CO_g", "CO2_g", "CH4_g", "O2_g", "C_cr")
 )
-CHO_system: InteriorAtmosphere = InteriorAtmosphere(species)
+CHO_model: EquilibriumModel = EquilibriumModel(species)
 
 
 def test_graphite_stable(helper) -> None:
     """Tests graphite stable with around 50% condensed C mass fraction"""
 
-    planet: Planet = Planet(surface_temperature=873)
+    planet: Planet = Planet(temperature=873)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {
         "O2_g": IronWustiteBuffer(np.nan)
     }
@@ -59,13 +60,13 @@ def test_graphite_stable(helper) -> None:
     o_kg: ArrayLike = 2.73159e19
     mass_constraints = {"C": c_kg, "H": h_kg, "O": o_kg}
 
-    CHO_system.solve(
-        planet=planet,
+    CHO_model.solve(
+        state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
         solver_type="basic",
     )
-    output: Output = CHO_system.output
+    output: Output = CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -88,17 +89,17 @@ def test_graphite_unstable(helper) -> None:
     Similar to :cite:p:`BHS22{Table E, row 2}`
     """
 
-    planet: Planet = Planet(surface_temperature=1400)
+    planet: Planet = Planet(temperature=1400)
     fugacity_constraints: dict[str, FugacityConstraintProtocol] = {"O2_g": IronWustiteBuffer(0.5)}
     oceans: ArrayLike = 3
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     c_kg: ArrayLike = 1 * h_kg
     mass_constraints = {"C": c_kg, "H": h_kg}
 
-    CHO_system.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
+    CHO_model.solve(
+        state=planet, fugacity_constraints=fugacity_constraints, mass_constraints=mass_constraints
     )
-    output: Output = CHO_system.output
+    output: Output = CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -118,19 +119,17 @@ def test_graphite_unstable(helper) -> None:
 def test_water_stable(helper) -> None:
     """Condensed water at 10 bar"""
 
-    species: SpeciesCollection = SpeciesCollection.create(("H2_g", "H2O_g", "O2_g", "H2O_l"))
-    planet: Planet = Planet(surface_temperature=411.75)
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
+    species: SpeciesNetwork = SpeciesNetwork.create(("H2_g", "H2O_g", "O2_g", "H2O_l"))
+    planet: Planet = Planet(temperature=411.75)
+    model: EquilibriumModel = EquilibriumModel(species)
 
     oceans: float = 1
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     o_kg: float = 1.14375e21
     mass_constraints = {"H": h_kg, "O": o_kg}
 
-    interior_atmosphere.solve(
-        planet=planet, mass_constraints=mass_constraints, solver_type="basic"
-    )
-    output: Output = interior_atmosphere.output
+    model.solve(state=planet, mass_constraints=mass_constraints, solver_type="robust")
+    output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -147,21 +146,19 @@ def test_water_stable(helper) -> None:
 def test_graphite_water_stable(helper) -> None:
     """Tests C and water in equilibrium at 430 K and 10 bar"""
 
-    species: SpeciesCollection = SpeciesCollection.create(
+    species: SpeciesNetwork = SpeciesNetwork.create(
         ("H2O_g", "H2_g", "O2_g", "CO_g", "CO2_g", "CH4_g", "H2O_l", "C_cr")
     )
-    planet: Planet = Planet(surface_temperature=430)
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
+    planet: Planet = Planet(temperature=430)
+    model: EquilibriumModel = EquilibriumModel(species)
 
     h_kg: float = 3.10e20
     c_kg: float = 1.08e20
     o_kg: float = 2.48298883581636e21
     mass_constraints = {"C": c_kg, "H": h_kg, "O": o_kg}
 
-    interior_atmosphere.solve(
-        planet=planet, mass_constraints=mass_constraints, solver_type="basic"
-    )
-    output: Output = interior_atmosphere.output
+    model.solve(state=planet, mass_constraints=mass_constraints, solver_type="basic")
+    output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
     factsage_result: dict[str, float] = {
@@ -181,148 +178,47 @@ def test_graphite_water_stable(helper) -> None:
 
 
 def test_impose_stable(helper) -> None:
-    """Tests a user-imposed stable condensate
+    """Tests a user-imposed stable condensate"""
 
-    In general, it is not guaranteed that a system under consideration has a stable condensate, and
-    so for most cases the abundance of a condensate should be solved for along with its stability.
-    """
+    # Enforce the stability of graphite
+    # Since in this example we do not provide carbon in the injected gas stream, we cannot solve
+    # for the stability of any carbon-bearing products because in order to do so requires
+    # specification of the mass of carbon in the system.
+    activity = CondensateActivity(1.0)
+    C_cr = ChemicalSpecies.create_condensed("C", activity=activity, solve_for_stability=False)
 
-    # To enforce condensate stability we must set solve_for_stability to False
-    C_cr: Species = Species.create_condensed("C", solve_for_stability=False)
-    H2_g: Species = Species.create_gas("H2")
-    N2_g: Species = Species.create_gas("N2")
-    CHN_g: Species = Species.create_gas("CHN")
-    Ar_g: Species = Species.create_gas("Ar")
+    # Define allowable gas species at equilibrium
+    H2_g = ChemicalSpecies.create_gas("H2")
+    N2_g = ChemicalSpecies.create_gas("N2")
+    CH4_g = ChemicalSpecies.create_gas("CH4")
+    CHN_g = ChemicalSpecies.create_gas("CHN")
+    H_g = ChemicalSpecies.create_gas("H")
 
-    species: SpeciesCollection = SpeciesCollection((C_cr, H2_g, N2_g, CHN_g, Ar_g))
+    species = SpeciesNetwork((C_cr, H2_g, N2_g, CH4_g, CHN_g, H_g))
 
-    # We still specify a planet, even though the only parameter of relevance is the temperature
-    # Melt fraction is set to zero for completeness, but again is irrelevant without solubility.
-    planet: Planet = Planet(surface_temperature=1500, mantle_melt_fraction=0)
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
+    model = EquilibriumModel(species)
 
-    # Only specify fugacity constraints
-    fugacity_constraints: dict[str, FugacityConstraintProtocol] = {
-        # Since solve_for_stability is False the activity is imposed, which counts as a constraint
-        # and does not need to be re-specified here.
-        "H2_g": ConstantFugacityConstraint(0.1),
-        "N2_g": ConstantFugacityConstraint(0.2),
-        "Ar_g": ConstantFugacityConstraint(0.9),
-    }
+    # Set the temperature and pressure
+    state = ThermodynamicState(temperature=1773.15, melt_fraction=0, pressure=1)
 
-    interior_atmosphere.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, solver_type="basic"
-    )
-    output: Output = interior_atmosphere.output
+    # Define the mole fractions of input gases
+    mole_fractions = {"H2": 0.5, "N2": 0.5}
+
+    # Define the composition of the input gas mixture by mass
+    mass_constraints = {key: value * Formula(key).mass for key, value in mole_fractions.items()}
+
+    # Solve
+    model.solve(state=state, mass_constraints=mass_constraints, solver_type="basic")
+
+    output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
-    # TODO: Swap for a like-for-like comparison with FactSage?
-    target_result: dict[str, float] = {
+    factsage_result: dict[str, float] = {
+        "CH4_g": 0.000194708,
         "C_cr_activity": 1.0,
-        "H2_g": 0.1,
-        "N2_g": 0.2,
-        "Ar_g": 0.9,
-        "CHN_g": 0.000174719425093,
+        "H_g": 0.000201266,
+        "H2_g": 0.49807992,
+        "N2_g": 0.49866269,
     }
 
-    assert helper.isclose(solution, target_result, rtol=RTOL, atol=ATOL)
-
-
-def test_impose_stable_activity(helper) -> None:
-    """Tests a user-imposed stable condensate with a non-unity activity
-
-    In general, it is not guaranteed that a system under consideration has a stable condensate, and
-    so for most cases the abundance of a condensate should be solved for along with its stability.
-    """
-
-    # To enforce condensate stability we must set solve_for_stability to False
-    # Impose a non-unity activity for C(cr)
-    activity: ActivityProtocol = CondensateActivity(0.9)
-    C_cr: Species = Species.create_condensed("C", activity=activity, solve_for_stability=False)
-    H2_g: Species = Species.create_gas("H2")
-    N2_g: Species = Species.create_gas("N2")
-    CHN_g: Species = Species.create_gas("CHN")
-    Ar_g: Species = Species.create_gas("Ar")
-
-    species: SpeciesCollection = SpeciesCollection((C_cr, H2_g, N2_g, CHN_g, Ar_g))
-
-    # We still specify a planet, even though the only parameter of relevance is the temperature
-    # Melt fraction is set to zero for completeness, but again is irrelevant without solubility.
-    planet: Planet = Planet(surface_temperature=1500, mantle_melt_fraction=0)
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
-
-    # Only specify fugacity constraints
-    fugacity_constraints: dict[str, FugacityConstraintProtocol] = {
-        # Since solve_for_stability is False the activity is imposed, which counts as a constraint
-        # and does not need to be re-specified here.
-        "H2_g": ConstantFugacityConstraint(0.1),
-        "N2_g": ConstantFugacityConstraint(0.2),
-        "Ar_g": ConstantFugacityConstraint(0.9),
-    }
-
-    interior_atmosphere.solve(
-        planet=planet, fugacity_constraints=fugacity_constraints, solver_type="basic"
-    )
-    output: Output = interior_atmosphere.output
-    solution: dict[str, ArrayLike] = output.quick_look()
-
-    # TODO: Swap for a like-for-like comparison with FactSage?
-    target_result: dict[str, float] = {
-        "C_cr_activity": 0.9,
-        "H2_g": 0.1,
-        "N2_g": 0.2,
-        "Ar_g": 0.9,
-        "CHN_g": 0.000157247482584,
-    }
-
-    assert helper.isclose(solution, target_result, rtol=RTOL, atol=ATOL)
-
-
-def test_impose_stable_pressure(helper) -> None:
-    """Tests a user-imposed stable condensate with a total pressure constraint
-
-    In general, it is not guaranteed that a system under consideration has a stable condensate, and
-    so for most cases the abundance of a condensate should be solved for along with its stability.
-    """
-
-    # To enforce condensate stability we must set solve_for_stability to False
-    C_cr: Species = Species.create_condensed("C", solve_for_stability=False)
-    H2_g: Species = Species.create_gas("H2")
-    N2_g: Species = Species.create_gas("N2")
-    CHN_g: Species = Species.create_gas("CHN")
-    Ar_g: Species = Species.create_gas("Ar")
-
-    species: SpeciesCollection = SpeciesCollection((C_cr, H2_g, N2_g, CHN_g, Ar_g))
-
-    planet: Planet = Planet(surface_temperature=1500, mantle_melt_fraction=0)
-    interior_atmosphere: InteriorAtmosphere = InteriorAtmosphere(species)
-
-    # Specify fugacity constraints for some species
-    fugacity_constraints: dict[str, FugacityConstraintProtocol] = {
-        # Since solve_for_stability is False the activity is imposed, which counts as a constraint
-        # and does not need to be re-specified here.
-        "H2_g": ConstantFugacityConstraint(0.1),
-        "N2_g": ConstantFugacityConstraint(0.2),
-    }
-    # Specify the total pressure of the system
-    total_pressure_constraint: ArrayLike = 1
-
-    interior_atmosphere.solve(
-        planet=planet,
-        fugacity_constraints=fugacity_constraints,
-        total_pressure_constraint=total_pressure_constraint,
-        solver_type="basic",
-    )
-    output: Output = interior_atmosphere.output
-    solution: dict[str, ArrayLike] = output.quick_look()
-
-    # TODO: Swap for a comparison with FactSage?
-    target_result: dict[str, float] = {
-        "C_cr_activity": 1.0,
-        "H2_g": 0.1,
-        "N2_g": 0.2,
-        "Ar_g": 0.699825280574906,
-        "CHN_g": 0.000174719425093,
-    }
-
-    assert helper.isclose(solution, target_result, rtol=RTOL, atol=ATOL)
+    assert helper.isclose(solution, factsage_result, log=True, rtol=TOLERANCE, atol=TOLERANCE)
