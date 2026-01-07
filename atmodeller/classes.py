@@ -48,6 +48,7 @@ class EquilibriumModel:
 
     _solver: Optional[Callable] = None
     _output: Optional[Output] = None
+    _selected_solver: Literal["basic", "robust"] = "basic"
 
     def __init__(self, species_network: SpeciesNetwork):
         self.species_network: SpeciesNetwork = species_network
@@ -100,7 +101,7 @@ class EquilibriumModel:
         fugacity_constraints: Optional[Mapping[str, FugacityConstraintProtocol]] = None,
         mass_constraints: Optional[Mapping[str, ArrayLike]] = None,
         solver_parameters: Optional[SolverParameters] = None,
-        solver_type: Literal["basic", "robust"] = "robust",
+        solver: Literal["basic", "robust"] = "robust",
         solver_recompile: bool = False,
     ) -> None:
         """Runs the nonlinear solver and initialises the output state.
@@ -122,8 +123,8 @@ class EquilibriumModel:
             fugacity_constraints: Fugacity constraints. Defaults to ``None``.
             mass_constraints: Mass constraints. Defaults to ``None``.
             solver_parameters: Solver parameters. Defaults to ``None``.
-            solver_type: Build a basic (faster) or a robust (slower) solver. Defaults to
-                ``robust``.
+            solver: Build a ``basic`` (faster compile time) or a ``robust`` (slower compile time)
+                solver. Defaults to ``robust``.
             solver_recompile: Force recompilation of the solver. Defaults to ``False``.
         """
         parameters: Parameters = Parameters.create(
@@ -141,15 +142,16 @@ class EquilibriumModel:
         key, subkey = jax.random.split(key)  # Split the key for use in this function
 
         if self._solver is None or solver_recompile:
-            if solver_type == "basic":
+            if solver == "basic":
                 self._solver = make_independent_solver(parameters)
                 # Alternatively, could use the batch solver
                 # self._solver = make_batch_solver(parameters)
-            elif solver_type == "robust":
+            elif solver == "robust":
                 self._solver = make_solver(parameters)
-            self._solver_type = solver_type  # Track current solver type
+            else:
+                raise ValueError(f"Unknown solver type: {solver}")
+            self._selected_solver = solver
 
-        assert self._solver is not None
         multi_sol: MultiAttemptSolution = self._solver(base_solution_array, parameters, subkey)
 
         num_successful_models: int = jnp.count_nonzero(multi_sol.solver_success).item()
@@ -157,7 +159,7 @@ class EquilibriumModel:
 
         logger.info(
             "Solve (%s) complete: %d (%0.2f%%) successful model(s)",
-            solver_type,
+            self._selected_solver,
             num_successful_models,
             num_successful_models * 100 / parameters.batch_size,
         )
@@ -216,7 +218,7 @@ def _broadcast_component(
     if component is None:
         base: NpFloat = np.full((dim,), default_value, dtype=np.float64)
     else:
-        component = np.asarray(component, dtype=jnp.float64)
+        component = np.asarray(component, dtype=np.float64)
         if component.ndim == 0:
             base = np.full((dim,), component.item(), dtype=np.float64)
         elif component.ndim == 1:

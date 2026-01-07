@@ -195,6 +195,9 @@ class Chabrier(RealGas):
         Returns:
             Log fugacity in bar
         """
+        # pressure = eqx.error_if(
+        #    jnp.asarray(pressure), jnp.asarray(pressure) <= 0, "pressure must be positive"
+        # )
         temperature = as_j64(temperature)
         log10_pressure: Array = jnp.log10(pressure)
         temperature, log10_pressure = jnp.broadcast_arrays(temperature, log10_pressure)
@@ -203,20 +206,26 @@ class Chabrier(RealGas):
         pressures: Array = jnp.logspace(
             jnp.log10(STANDARD_PRESSURE), log10_pressure, num=self.integration_steps
         )
+        # jax.debug.print("log10_pressure = {out}", out=log10_pressure)
+        # pressures = eqx.error_if(pressures, jnp.any(pressures <= 0), "pressures must not be zero")
         # jax.debug.print("pressures.shape = {out}", out=pressures.shape)
         dP: Array = jnp.diff(pressures, axis=0)
         # jax.debug.print("dP.shape = {out}", out=dP.shape)
+        # dP = eqx.error_if(dP, jnp.any(dP <= 0), "dP must be positive")
 
         volumes: Array = self.volume(temperature, pressures)
+        # volumes = eqx.error_if(volumes, jnp.any(jnp.isnan(volumes)), "volume must not be nan")
         # jax.debug.print("volumes.shape = {out}", out=volumes.shape)
         avg_volumes: Array = (volumes[:-1] + volumes[1:]) * 0.5
         # jax.debug.print("avg_volumes.shape = {out}", out=avg_volumes.shape)
 
         # Trapezoid integration
         volume_integral: Array = jnp.sum(avg_volumes * dP, axis=0)
+        # jax.debug.print("volume_integral = {out}", out=volume_integral)
         # jax.debug.print("volume_integral.shape = {out}", out=volume_integral.shape)
 
         log_fugacity: Array = volume_integral / (GAS_CONSTANT_BAR * temperature)
+        # jax.debug.print("log_fugacity = {out}", out=log_fugacity)
 
         return log_fugacity
 

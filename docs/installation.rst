@@ -120,9 +120,15 @@ Make sure that the Python version used is compatible with *Atmodeller*'s require
 
     python -m venv .venv
 
-Activate the virtual environment::
+To activate the virtual environment the command is different depending on your operating system:
+
+Mac/Linux::
 
     source .venv/bin/activate
+
+Windows::
+
+    .venv\Scripts\Activate.ps1
 
 You may use the ``-e`` option for an `editable install <https://setuptools.pypa.io/en/latest/userguide/development_mode.html>`_::
 

@@ -48,7 +48,7 @@ H2O_g: ChemicalSpecies = ChemicalSpecies.create_gas("H2O")
 O2_g: ChemicalSpecies = ChemicalSpecies.create_gas("O2")
 SiO_g: ChemicalSpecies = ChemicalSpecies.create_gas("OSi")
 H4Si_g: ChemicalSpecies = ChemicalSpecies.create_gas("H4Si")
-O2Si_l: ChemicalSpecies = ChemicalSpecies.create_condensed("O2Si", state="l")
+O2Si_l: ChemicalSpecies = ChemicalSpecies.create_condensed("O2Si")
 species: SpeciesNetwork = SpeciesNetwork((H2_g, H2O_g, O2_g, H4Si_g, SiO_g, O2Si_l))
 subneptune_model: EquilibriumModel = EquilibriumModel(species)
 
@@ -79,7 +79,7 @@ def test_fO2_holley(helper) -> None:
         state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
     )
     output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
@@ -102,7 +102,7 @@ def test_chabrier_earth(helper) -> None:
     o_kg: ArrayLike = h_kg * 10
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg, "Si": si_kg, "O": o_kg}
 
-    subneptune_model.solve(state=planet, mass_constraints=mass_constraints, solver_type="basic")
+    subneptune_model.solve(state=planet, mass_constraints=mass_constraints, solver="basic")
     output: Output = subneptune_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
@@ -198,7 +198,7 @@ def test_chabrier_subNeptune_batch(helper) -> None:
     subneptune_model.solve(
         state=planet,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
         solver_recompile=True,
     )
     output: Output = subneptune_model.output
@@ -245,8 +245,8 @@ def test_pH2_fO2_real_gas(helper) -> None:
         state=planet,
         mass_constraints=mass_constraints,
         fugacity_constraints=fugacity_constraints,
-        solver_type="basic",
-        # Guide the solver with an improved initial guess, otherwise use solver_type="robust".
+        solver="basic",
+        # Guide the solver with an improved initial guess, otherwise use solver="robust".
         initial_log_number_moles=np.array([54, 54, 31]),
     )
     output: Output = model.output

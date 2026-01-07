@@ -73,7 +73,7 @@ def test_H2O(helper) -> None:
     h_kg: ArrayLike = earth_oceans_to_hydrogen_mass(oceans)
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg}
 
-    model.solve(state=planet, mass_constraints=mass_constraints, solver_type="basic")
+    model.solve(state=planet, mass_constraints=mass_constraints, solver="basic")
     output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
@@ -95,7 +95,7 @@ def test_H_O(helper) -> None:
     o_kg: ArrayLike = 6.25774e20
     mass_constraints: dict[str, ArrayLike] = {"H": h_kg, "O": o_kg}
 
-    model.solve(state=planet, mass_constraints=mass_constraints, solver_type="basic")
+    model.solve(state=planet, mass_constraints=mass_constraints, solver="basic")
     output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
 
@@ -125,7 +125,7 @@ def test_H_fO2(helper) -> None:
         state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
     )
     output: Output = gas_HO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
@@ -151,7 +151,7 @@ def test_H_fO2_fH2(helper) -> None:
     gas_HO_model.solve(
         state=planet,
         fugacity_constraints=fugacity_constraints,
-        solver_type="basic",
+        solver="basic",
         solver_recompile=True,
     )
     output: Output = gas_HO_model.output
@@ -184,7 +184,7 @@ def test_H_fO2_batch_temperature(helper) -> None:
         state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
         solver_recompile=True,
     )
     output: Output = gas_HO_model.output
@@ -238,7 +238,7 @@ def test_H_fO2_batch_fO2_shift(helper) -> None:
         state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
         solver_recompile=True,
     )
     output: Output = gas_HO_model.output
@@ -290,7 +290,7 @@ def test_H_fO2_batch_H_mass(helper) -> None:
         state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
         solver_recompile=True,
     )
     output: Output = gas_HO_model.output

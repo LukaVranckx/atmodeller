@@ -17,7 +17,7 @@ The solver fails
 Because the solution process is compiled and optimized by JAX, it can be challenging to inspect the solver's internal workings without using `JAX debugging tools <https://jax.readthedocs.io/en/latest/debugging.html>`_. However, the nature of the failure can often provide insight into the underlying issue:
 
 - A solution cannot be found
-- The solver detects an NaN (Not a Number) or infinity in a function
+- The solver detects an nan (not a number) or infinity in a function
 
 A solution cannot be found
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -28,7 +28,7 @@ A solution cannot be found
 
 - *Atmodeller* uses a bounded solver, with upper and lower limits specified in the package's `__init__`. These bounds are generally generous, but it is still possible that a solution lies outside them---particularly when modelling large atmospheres in the absence of solubility. Consider adjusting or inspecting the bounds if appropriate.
 
-The solver detects an NaN
+The solver detects an nan
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - During solution, *Atmodeller* evaluates various functions involving thermodynamic data, solubility laws, and real gas equations of state. These functions are not guaranteed to return finite values across all inputs. Although the bounded solver helps mitigate this, NaNs may still arise if any function behaves poorly for the given inputs. In such cases, iteratively simplifying the system---removing or isolating specific solubility laws or EOS---can help identify the problematic function.

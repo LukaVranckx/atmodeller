@@ -60,7 +60,7 @@ dependencies = [
     "xmmutablemap>=0.2.1",
     "optimistix>=0.0.11",
     "equinox>=0.13.2",
-    "jaxmod>=0.3.0",
+    "jaxmod>=0.4.0",
 ]
 
 # [tool.uv.sources]

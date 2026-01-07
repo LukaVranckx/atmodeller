@@ -202,13 +202,7 @@ class OutputSolution(Output):
             self.number_solutions,
         )
         out["residual"] = self.residual_asdict()  # type: ignore since keys are int
-
-        out["solver"] = {
-            "status": np.asarray(self.multi_attempt_solution.solver_success),
-            "steps": np.asarray(self.multi_attempt_solution.num_steps),
-            "attempts": np.asarray(self.multi_attempt_solution.attempts),
-            "converged": np.asarray(self.multi_attempt_solution.converged),
-        }
+        out["solver"] = self.multi_attempt_solution.asdict()
 
         self._cached_dict = out  # Re-cache result for faster re-accessing
 

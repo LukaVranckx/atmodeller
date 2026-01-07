@@ -425,7 +425,7 @@ class ThermodynamicDataSource:
             DATA_DIRECTORY.joinpath(THERMODYNAMIC_DATA_SOURCE)  # type: ignore
         )
         with data as datapath:
-            self.data = pd.read_csv(datapath, sep=" ", comment="#")
+            self.data = pd.read_csv(datapath, comment="#")
 
     @property
     def formula_column(self) -> str:
@@ -511,7 +511,7 @@ class CriticalDataSource:
             DATA_DIRECTORY.joinpath(CRITICAL_DATA_SOURCE)  # type: ignore
         )
         with data as datapath:
-            self.data = pd.read_csv(datapath, sep=" ", comment="#")
+            self.data = pd.read_csv(datapath, comment="#")
 
     @property
     def name_column(self) -> str:
