@@ -648,7 +648,7 @@ class ChemicalSpeciesData(eqx.Module):
                 # pressure = 72 # (GPa) output of atmodelle for O-H system in same conditions (WITH miscibility, real gasses)
                 
                 print('INFO | Calculating Gibbs free energy of mixing between H2 and H2O')
-                gibbs_over_RT_pure: Float[Array, " T"] = IndividualSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) * Y + IndividualSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature) * (1-Y)
+                gibbs_over_RT_pure: Float[Array, " T"] = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) * Y + ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature) * (1-Y)
                 # jax.debug.print("gibbs pure = {}, temperature {}", gibbs_over_RT_pure, temperature)
                 
                 gibbs_idealmix: Float[Array, " T"] = jnp.array(Y*jnp.log(Y)+(1-Y)*jnp.log(1-Y), float)
@@ -665,8 +665,8 @@ class ChemicalSpeciesData(eqx.Module):
 
                 # Printing Gibbs energy of reacion H2 + H2O -> H4O
                 G_H4O = gibbs_over_RT
-                G_H2 = IndividualSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
-                G_H2O = IndividualSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
+                G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
+                G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
                 # jax.debug.print("G_H2 = {}, temperature {}",G_H2, temperature)
                 # jax.debug.print("G_H2O = {}, temperature {}",G_H2O, temperature)
                 # jax.debug.print("G_H4O = {}, temperature {}",G_H4O, temperature)
