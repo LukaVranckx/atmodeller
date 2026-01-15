@@ -21,7 +21,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from importlib.resources.abc import Traversable
 from pathlib import Path
-from typing import cast
+from typing import cast, Optional
 
 import equinox as eqx
 import jax
@@ -595,8 +595,9 @@ class ChemicalSpeciesData(eqx.Module):
     """Molar mass"""
     miscibility: bool = False
     """Mix of multiple species"""
+    mass_constraints : Optional[dict[str, float]] = None
 
-    def __init__(self, formula: str, state: str, miscibility: bool):
+    def __init__(self, formula: str, state: str, miscibility: bool,mass_constraints: Optional[dict[str, float]] = None):
         self.formula = formula
         self.state = state
         mformula: Formula = Formula(self.formula)
@@ -604,13 +605,44 @@ class ChemicalSpeciesData(eqx.Module):
         self.hill_formula = mformula.formula
         self.molar_mass = mformula.mass * unit_conversion.g_to_kg
         self.miscibility = miscibility
-        try:
-            self.thermo = thermodynamic_coefficients_dictionary[self.name]
-        except KeyError:
-            raise KeyError(
-                f"{self.name} not available. "
-                f"Available species are {thermodynamic_data_source.available_species()}"
-            )
+        self.mass_constraints = mass_constraints
+        if not miscibility:
+            try:
+                self.thermo = thermodynamic_coefficients_dictionary[self.name]
+            except KeyError:
+                raise KeyError(
+                    f"{self.name} not available. "
+                    f"Available species are {thermodynamic_data_source.available_species()}"
+                )
+        else:
+            # The Gibbs values will be overwritten in get_gibbs_over_RT()
+            self.thermo = ChemicalSpeciesData("HO",'g',miscibility=False).thermo # Coincidence that NIST JANAF has real species 'HO'
+            
+            ## Changing composition by taking into account mole fracions of constituent gasses (H2, H2O)
+            base_comp = dict(ChemicalSpeciesData("HO",'g',miscibility=False).composition) # copy of self.composition
+            
+            # jax.debug.print("{}", base_comp['H'])
+            ## PROBLEM: at second iteration, no H2 and H2O anymore
+            # x_H = 2 * mole_fractions["H2"] + 2 * mole_fractions["H2O"]  # type: ignore
+            # x_O = mole_fractions["H2O"] # type: ignore
+            ## Hard to derive mole fraction H2,H2O from mass_H, mass_O because also have O2, hcose very arbitrarily
+            # EARTH_MASS = 5.972e24 # 1 Earth mass (kg)
+            # planet_mass = 5 * EARTH_MASS 
+            # x_H = mass_constraints["H"]/planet_mass # type: ignore
+            # x_O = mass_constraints["O"]/planet_mass # type: ignore
+            x_H = 5
+            x_O = 1
+            # scaler = 2 
+            # x_H = 0.6 * scaler
+            # x_O = 0.4 * scaler
+            n, a, b = base_comp["H"]
+            base_comp["H"] = (n * x_H, a * x_H, b * x_H) # type: ignore
+            n, a, b = base_comp["O"]
+            base_comp["O"] = (n * x_O, a * x_O, b * x_O) # type: ignore
+
+            self.composition = ImmutableMap(base_comp) # replace self.composition
+            print(mass_constraints)
+            print(self.composition)
 
     @property
     def elements(self) -> tuple[str, ...]:
@@ -622,7 +654,7 @@ class ChemicalSpeciesData(eqx.Module):
         """Unique name by combining Hill notation and state of aggregation"""
         return f"{self.hill_formula}_{self.state}"
 
-    def get_gibbs_over_RT(self, temperature: ArrayLike) -> Array:
+    def get_gibbs_over_RT(self, temperature: ArrayLike, pressure: Optional[ArrayLike]) -> Array:
         """Gets Gibbs energy over RT. For the miscible phase of H and H2O, the Gibbs energy of 
         mixing is calculated according to Gupta et al. 2025 A.3 {Equation A3}
 
@@ -635,42 +667,64 @@ class ChemicalSpeciesData(eqx.Module):
         gibbs_over_RT = self.thermo.get_gibbs_over_RT(temperature)
 
         if self.miscibility:
-            if self.formula == 'H4O':
-                # Asumptions: Equal ammount of moles: 50% H2, 50% H2O
-                # Pressure estimate comes from no miscibilty case
+            # if self.formula == 'H4O':
+            #     # Asumptions: Equal ammount of moles: 50% H2, 50% H2O
+            #     # Pressure estimate comes from no miscibilty case
+            #     LAMBDA = 2.62 + (-0.68)/(temperature/1000) 
+            #     X = LAMBDA / (1+ LAMBDA) # critical composition
+            #     # jax.debug.print("x = {}, temperature {}", X, temperature)
+            #     # Y = X / (X + LAMBDA*(1-X)) # y in Gupta et al. 2025
+            #     Y = X # Using X in equations below (bcs Y always defined as 0.5)
+            #     # jax.debug.print("Y = {}, temperature {}", Y, temperature)
+            #     pressure = 36 # (GPa) output of atmodelle for O-H system in same conditions (WITH miscibility, ideal gasses)
+            #     # pressure = 72 # (GPa) output of atmodelle for O-H system in same conditions (WITH miscibility, real gasses)
+                
+            #     print('INFO | Calculating Gibbs free energy of mixing between H2 and H2O')
+            #     gibbs_over_RT_pure: Float[Array, " T"] = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) * Y + ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature) * (1-Y)
+            #     # jax.debug.print("gibbs pure = {}, temperature {}", gibbs_over_RT_pure, temperature)
+                
+            #     gibbs_idealmix: Float[Array, " T"] = jnp.array(Y*jnp.log(Y)+(1-Y)*jnp.log(1-Y), float)
+            #     # jax.debug.print("gibbs_idealmix = {}, temperature {}", gibbs_idealmix, temperature)
+            #     W_H = -599.08
+            #     W_S = -16.08 
+            #     W_V = -26.12 + 981.78/(temperature/1000)**2
+            #     # jax.debug.print("W_H={}, T*W_S={}, P*W_V={}", W_H, temperature*W_S, pressure*W_V)
+            #     W = W_H - temperature*W_S + pressure*W_V
+            #     gibbs_excess: Float[Array, " T"] = jnp.array(W*Y*(1-Y), float)
+            #     jax.debug.print('Gibbs energy of mixing is {}, temperature {}', gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature),temperature)
+            #     gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature) # unit: (J/mol/K) / (J/mol/K) so unitless
+            #     # jax.debug.print('Gibbs_over_RT H4O {out}', out=gibbs_over_RT)
+
+            #     # Printing Gibbs energy of reacion H2 + H2O -> H4O
+            #     G_H4O = gibbs_over_RT
+            #     G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
+            #     G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
+            #     # jax.debug.print("G_H2 = {}, temperature {}",G_H2, temperature)
+            #     # jax.debug.print("G_H2O = {}, temperature {}",G_H2O, temperature)
+            #     # jax.debug.print("G_H4O = {}, temperature {}",G_H4O, temperature)
+            #     jax.debug.print("gibbs_over_RT reaction = {}, temperature {}, y {}",G_H4O-G_H2-G_H2O, temperature, Y)
+            #     jax.debug.print("gibbs_over_RT reaction Y corrected = {}, temperature {}, y {}",G_H4O-Y*G_H2-(1-Y)*G_H2O, temperature, Y)
+            if self.formula == 'HO':
+                print('INFO | Calculating Gibbs energy of mixing')
+                # jax.debug.print('pressure is {}', pressure) 
+                pressure_GPa = pressure/1e4
+                x = 0.5 #TODO from user input 'mole_fractions'
+                G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
+                G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
+                gibbs_over_RT_pure = x*G_H2 + (1-x)*G_H2O
+
                 LAMBDA = 2.62 + (-0.68)/(temperature/1000) 
-                X = LAMBDA / (1+ LAMBDA) # critical composition
-                # jax.debug.print("x = {}, temperature {}", X, temperature)
-                # Y = X / (X + LAMBDA*(1-X)) # y in Gupta et al. 2025
-                Y = X # Using X in equations below (bcs Y always defined as 0.5)
-                # jax.debug.print("Y = {}, temperature {}", Y, temperature)
-                pressure = 36 # (GPa) output of atmodelle for O-H system in same conditions (WITH miscibility, ideal gasses)
-                # pressure = 72 # (GPa) output of atmodelle for O-H system in same conditions (WITH miscibility, real gasses)
-                
-                print('INFO | Calculating Gibbs free energy of mixing between H2 and H2O')
-                gibbs_over_RT_pure: Float[Array, " T"] = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) * Y + ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature) * (1-Y)
-                # jax.debug.print("gibbs pure = {}, temperature {}", gibbs_over_RT_pure, temperature)
-                
+                Y = x / (x + LAMBDA*(1-x))
                 gibbs_idealmix: Float[Array, " T"] = jnp.array(Y*jnp.log(Y)+(1-Y)*jnp.log(1-Y), float)
                 # jax.debug.print("gibbs_idealmix = {}, temperature {}", gibbs_idealmix, temperature)
                 W_H = -599.08
                 W_S = -16.08 
                 W_V = -26.12 + 981.78/(temperature/1000)**2
                 # jax.debug.print("W_H={}, T*W_S={}, P*W_V={}", W_H, temperature*W_S, pressure*W_V)
-                W = W_H - temperature*W_S + pressure*W_V
+                W = W_H - temperature*W_S + pressure_GPa*W_V
                 gibbs_excess: Float[Array, " T"] = jnp.array(W*Y*(1-Y), float)
-                jax.debug.print('Gibbs energy of mixing is {}, temperature {}', gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature),temperature)
-                gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature) # unit: (J/mol/K) / (J/mol/K) so unitless
-                # jax.debug.print('Gibbs_over_RT H4O {out}', out=gibbs_over_RT)
+                # jax.debug.print('Gibbs energy of mixing is {}, temperature {}', gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature),temperature)
+                gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature)
 
-                # Printing Gibbs energy of reacion H2 + H2O -> H4O
-                G_H4O = gibbs_over_RT
-                G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
-                G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
-                # jax.debug.print("G_H2 = {}, temperature {}",G_H2, temperature)
-                # jax.debug.print("G_H2O = {}, temperature {}",G_H2O, temperature)
-                # jax.debug.print("G_H4O = {}, temperature {}",G_H4O, temperature)
-                jax.debug.print("gibbs_over_RT reaction = {}, temperature {}, y {}",G_H4O-G_H2-G_H2O, temperature, Y)
-                jax.debug.print("gibbs_over_RT reaction Y corrected = {}, temperature {}, y {}",G_H4O-Y*G_H2-(1-Y)*G_H2O, temperature, Y)
-
+                
         return gibbs_over_RT

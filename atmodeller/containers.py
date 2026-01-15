@@ -31,6 +31,7 @@ from jaxmod.units import unit_conversion
 from jaxmod.utils import as_j64, get_batch_size, partial_rref, to_hashable
 from jaxtyping import Array, ArrayLike, Bool, Float
 from molmass import CompositionItem, Formula
+from scipy import constants
 
 from atmodeller.constants import (
     CONDENSED_STATE,
@@ -179,7 +180,7 @@ class SpeciesNetwork(eqx.Module):
     """Index of diatomic oxygen or np.nan if not present"""
     number_reactions: int
     """Number of reactions"""
-    formula_matrix: NpInt
+    formula_matrix: NpFloat
     """Formula matrix"""
     reaction_matrix: NpFloat
     """Reaction matrix"""
@@ -188,8 +189,47 @@ class SpeciesNetwork(eqx.Module):
     number_solution: int
     """Number of solution quantities that cannot depend on traced quantities"""
 
-    def __init__(self, data: Iterable[ChemicalSpecies]):
+    def __init__(self, data: Iterable[ChemicalSpecies],miscibility: bool = False, mass_constraints: Optional[dict[str, float]] = None, temperature: Optional[float] = None, pressure: Optional[float] = None):
         self.data = tuple(data)
+        # self.miscibility = miscibility
+        # self.mole_fractions = mole_fractions
+        # self.temperature = temperature&&
+        # self.pressure = pressure
+
+        if miscibility: # Changing species in data to 1 phase mixture or 2 coexisting phases
+            if mass_constraints is None or temperature is None or pressure is None:
+                raise ValueError("miscibility=True requires mole_fractions, temperature and pressure")
+
+            # Tell PyLance these are safe
+            assert mass_constraints is not None
+            assert temperature is not None
+            assert pressure is not None
+
+            # STEP 1: deciding between 1 phase and 2 coexisting phases
+            GAS_CONSTANT: float = constants.gas_constant
+            x = 0.5 # initial mole fraction H2, formula from m_H, m_O, m_C ???
+            LAMBDA = 2.62 + (-0.68)/(temperature/1000)
+            y = x / (x + LAMBDA*(1-x))
+            W_H = -599.08
+            W_S = -16.08
+            W_V = -26.12 + 981.78/(temperature/1000)**2
+            P_crit = 1/W_V * (GAS_CONSTANT*temperature/(1-2*y) * np.log((1-y)/y) - (W_H - temperature*W_S))
+            pressure_GPa = pressure/1e4
+            if pressure_GPa <= P_crit: # one homogeneous phase
+                print(self)
+                # Define HxO as HO, having 1 H, 1 O which can later easily be adjusted to the right ratios
+                species_data = ChemicalSpeciesData('HO','g', miscibility=True, mass_constraints=mass_constraints)
+                # species_data.formula = 'HxO' # Can't change fomula
+                # print(species_data)
+                HxO_g: ChemicalSpecies = ChemicalSpecies(species_data, IdealGas(), NoSolubility(), solve_for_stability = False, number_solution = 1)
+                # HxO_g: ChemicalSpecies = ChemicalSpecies.create_gas("H2")
+                self.data = self.data + (HxO_g,)
+                print(self)
+                # Replacing self.data with tuple where H2 and H2O are removed
+                self.data = tuple(s for s in self if s.data.formula not in ['H2','H2O'])
+                print(self)
+
+            # else: #TODO two coexisting phases
 
         # Ensure number_solution is static
         self.number_solution = sum([species.number_solution for species in self.data])
@@ -286,7 +326,7 @@ class SpeciesNetwork(eqx.Module):
 
         return np.array(np.nan, dtype=float)
 
-    def get_formula_matrix(self) -> NpInt:
+    def get_formula_matrix(self) -> NpFloat:
         """Gets the formula matrix.
 
         Elements are given in rows and species in columns following the convention in
@@ -295,8 +335,8 @@ class SpeciesNetwork(eqx.Module):
         Returns:
             Formula matrix
         """
-        formula_matrix: NpInt = np.zeros(
-            (len(self.unique_elements), self.number_species), dtype=np.int_
+        formula_matrix: NpFloat = np.zeros(
+            (len(self.unique_elements), self.number_species), dtype=np.float64
         )
 
         for element_index, element in enumerate(self.unique_elements):
@@ -346,7 +386,7 @@ class SpeciesNetwork(eqx.Module):
         Returns:
             A matrix of linearly independent reactions or an empty array if no reactions
         """
-        transpose_formula_matrix: NpInt = self.get_formula_matrix().T
+        transpose_formula_matrix: NpFloat = self.get_formula_matrix().T
         reaction_matrix: NpFloat = partial_rref(transpose_formula_matrix)
         # logger.debug("reaction_matrix = %s", reaction_matrix)
 

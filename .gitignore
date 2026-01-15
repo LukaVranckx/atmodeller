@@ -177,4 +177,5 @@ docs/bin/pandoc
 sandbox/
 MiscibilityH/
 Debug_Miscibility.py
+Debug_MiscibilityHAtmodeller.py
 .vscode/launch.json
