@@ -30,7 +30,7 @@ from jaxmod.utils import as_j64, to_hashable, to_native_floats
 from jaxtyping import Array, ArrayLike
 
 from atmodeller import override
-from atmodeller.eos.core import IdealGas, RealGas
+from atmodeller.eos.core import IdealGas, RealGas, RealGasBase
 from atmodeller.utilities import ExperimentalCalibration
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -421,3 +421,127 @@ class UpperBoundRealGas(RealGas):
         )
 
         return volume_integral
+
+
+class CombinedRealGasFugacity(RealGasBase):
+    """Combined real gas EOS when only the functional form of the (log) fugacity is known.
+
+    This directly obtains the (log) fugacity at the relevant pressure by selecting the appropriate
+    EOS model based on the pressure bounds of each calibration.
+
+    Args:
+        real_gases: Real gases to use
+        calibrations: Experimental calibrations that correspond to ``real_gases``
+        min_log_fugacity_coefficient: Minimum log fugacity coefficient to avoid numerical issues.
+            Defaults to ``-15``.
+        max_log_fugacity_coefficient: Maximum log fugacity coefficient to avoid numerical issues.
+            Defaults to ``15``.
+    """
+
+    real_gases: tuple[RealGasBase, ...]
+    """Real gases to use"""
+    calibrations: tuple[ExperimentalCalibration, ...]
+    """Experimental calibrations"""
+    upper_pressure_bounds: tuple[float, ...] = eqx.field(converter=to_native_floats)
+    """Upper pressure bounds"""
+    _log_fugacity_coefficient_functions: tuple[Callable, ...]
+    min_log_fugacity_coefficient: float
+    """Minimum log fugacity coefficient to avoid numerical issues"""
+    max_log_fugacity_coefficient: float
+    """Maximum log fugacity coefficient to avoid numerical issues"""
+
+    def __init__(
+        self,
+        real_gases: tuple[RealGasBase, ...],
+        calibrations: tuple[ExperimentalCalibration, ...],
+        min_log_fugacity_coefficient: float = -15,
+        max_log_fugacity_coefficient: float = 15,
+    ):
+        self.real_gases = real_gases
+        self.calibrations = calibrations
+        self.upper_pressure_bounds = self._get_upper_pressure_bounds(calibrations)
+        self._log_fugacity_coefficient_functions = tuple(
+            to_hashable(eos.log_fugacity_coefficient) for eos in self.real_gases
+        )
+        self.min_log_fugacity_coefficient = min_log_fugacity_coefficient
+        self.max_log_fugacity_coefficient = max_log_fugacity_coefficient
+
+    @staticmethod
+    def _get_upper_pressure_bounds(
+        calibrations: tuple[ExperimentalCalibration, ...],
+    ) -> tuple[float, ...]:
+        """Gets the upper pressure bounds based on each experimental calibration.
+
+        Returns:
+            Upper pressure bounds
+        """
+        upper_pressure_bounds: list[float] = []
+
+        for ii, calibration in enumerate(calibrations):
+            try:
+                assert calibration.pressure_max is not None
+            except AssertionError:
+                if ii == len(calibrations) - 1:
+                    continue
+                else:
+                    msg: str = "Maximum pressure cannot be None"
+                    raise ValueError(msg)
+
+            pressure_bound = calibration.pressure_max
+            upper_pressure_bounds.append(pressure_bound)
+
+        return tuple(upper_pressure_bounds)
+
+    @eqx.filter_jit
+    def _get_index(self, pressure: ArrayLike) -> Array:
+        """Gets the index of the appropriate EOS model based on ``pressure``.
+
+        Args:
+            pressure: Pressure in bar
+
+        Returns:
+            Index of the relevant EOS model
+        """
+        index: Array = jnp.searchsorted(
+            jnp.array(self.upper_pressure_bounds), pressure, side="right"
+        )
+        # jax.debug.print("pressure = {pressure}, index = {index}", pressure=pressure, index=index)
+
+        return index
+
+    @eqx.filter_jit
+    def log_fugacity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        temperature, pressure = jnp.broadcast_arrays(temperature, pressure)
+        original_shape: tuple[int, ...] = temperature.shape
+        # jax.debug.print("temperature = {out}", out=temperature)
+        # jax.debug.print("pressure = {out}", out=pressure)
+
+        # Flatten for vmap
+        temperature = temperature.ravel()
+        pressure = pressure.ravel()
+
+        indices: Array = self._get_index(pressure)
+        # jax.debug.print("indices = {out}", out=indices)
+
+        def apply_log_fugacity_coefficient(index: ArrayLike, temperature, pressure) -> Array:
+            return lax.switch(
+                index, self._log_fugacity_coefficient_functions, temperature, pressure
+            )
+
+        vmap_log_fugacity_coefficient: Callable = eqx.filter_vmap(
+            apply_log_fugacity_coefficient, in_axes=(0, 0, 0)
+        )
+        log_fugacity_coefficient: Array = vmap_log_fugacity_coefficient(
+            indices, temperature, pressure
+        )
+
+        log_fugacity_coefficient = jnp.clip(
+            log_fugacity_coefficient,
+            a_min=self.min_log_fugacity_coefficient,
+            a_max=self.max_log_fugacity_coefficient,
+        )
+        # jax.debug.print("log_fugacity_coefficient = {out}", out=log_fugacity_coefficient)
+
+        log_fugacity: Array = log_fugacity_coefficient + jnp.log(pressure)
+
+        return jnp.reshape(log_fugacity, original_shape)

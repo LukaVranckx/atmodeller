@@ -25,6 +25,7 @@ from jaxmod.utils import as_j64
 from jaxtyping import Array, ArrayLike
 
 from atmodeller.eos import RealGas, get_eos_models
+from atmodeller.eos.core import RealGasBase
 
 # logger: logging.Logger = debug_logger()
 # logger.setLevel(logging.INFO)
@@ -40,7 +41,7 @@ class CheckValues:
     """Helper class with methods to check and confirm values"""
 
     def __init__(self) -> None:
-        self._eos_models: dict[str, RealGas] = get_eos_models()
+        self._eos_models: dict[str, RealGasBase] = get_eos_models()
 
     @classmethod
     def _check_property(
@@ -145,7 +146,7 @@ class CheckValues:
         result = method(temperature, pressure)
         assert result.shape == (3, 2)
 
-    def get_eos_model(self, species_name: str, suffix: str) -> RealGas:
+    def get_eos_model(self, species_name: str, suffix: str) -> RealGasBase:
         """Gets a model for a species
 
         Args:

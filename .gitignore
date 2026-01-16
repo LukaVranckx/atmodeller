@@ -174,8 +174,8 @@ docs/bin/pandoc
 *.png
 
 # Personal Notebooks or folders
-sandbox/
-MiscibilityH/
-Debug_Miscibility.py
-Debug_MiscibilityHAtmodeller.py
-.vscode/launch.json
+# sandbox/
+# MiscibilityH/
+# Debug_Miscibility.py
+# Debug_MiscibilityHAtmodeller.py
+# .vscode/launch.json

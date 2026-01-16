@@ -29,15 +29,15 @@ import pandas as pd
 from jax.scipy.interpolate import RegularGridInterpolator
 from jaxmod.constants import GAS_CONSTANT_BAR
 from jaxmod.units import unit_conversion
-from jaxmod.utils import as_j64
-from jaxtyping import Array, ArrayLike
+from jaxmod.utils import as_j64, to_native_floats
+from jaxtyping import Array, ArrayLike, Float
 from molmass import Formula
 
 from atmodeller import override
 from atmodeller.constants import STANDARD_PRESSURE
 from atmodeller.eos import DATA_DIRECTORY
-from atmodeller.eos._aggregators import CombinedRealGas
-from atmodeller.eos.core import RealGas
+from atmodeller.eos._aggregators import CombinedRealGas, CombinedRealGasFugacity
+from atmodeller.eos.core import IdealGas, RealGas, RealGasBase
 from atmodeller.utilities import ExperimentalCalibration
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -46,7 +46,9 @@ logger: logging.Logger = logging.getLogger(__name__)
 class Chabrier(RealGas):
     r"""Chabrier EOS from :cite:t:`CD21`
 
-    This uses rho-T-P tables to lookup density (rho).
+    This uses rho-T-P tables to lookup density (rho). Note that the numerical integration can be
+    unstable at low pressures causing nans/zeros to propagate through calculations and crash
+    simulations. Therefore, it is recommended to use the polynomial fit version if possible.
 
     Args:
         log10_density_func: Spline lookup for density from :cite:t:`CD21` T-P-rho tables
@@ -71,7 +73,7 @@ class Chabrier(RealGas):
 
     @classmethod
     def create(cls, filename: Path, integration_steps: int = 100) -> RealGas:
-        r"""Creates a Chabrier instance
+        r"""Creates a Chabrier instance.
 
         Args:
             filename: Filename of the density-T-P data
@@ -251,16 +253,88 @@ class Chabrier(RealGas):
         return volume_integral
 
 
+class ChabrierFunction(RealGasBase):
+    r"""Chabrier EOS from :cite:t:`CD21` using a function fit.
+
+    This provides a faster and more robust alternative to the full Chabrier EOS, which requires
+    numerical integration and can be unstable at low pressures.
+
+    Args:
+        coeffs: Coefficients for the log fugacity coefficient function
+    """
+
+    coeffs: tuple[float, ...] = eqx.field(converter=to_native_floats)
+
+    @override
+    @eqx.filter_jit
+    def log_fugacity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        return self.log_fugacity_coefficient(temperature, pressure) + jnp.log(pressure)
+
+    @override
+    @eqx.filter_jit
+    def log_fugacity_coefficient(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        """Log fugacity coefficient
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            Log fugacity coefficient, which is dimensionless
+        """
+        _, logP = jnp.broadcast_arrays(jnp.log(temperature), jnp.log(pressure))
+        c: Float[Array, " coeffs"] = jnp.array(self.coeffs)
+
+        # The chosen functional form is empirical, but by construction recovers a unity fugacity
+        # coefficient at 1 bar. The c[0]*exp(c[1]*logP) term captures the overall exponential
+        # behavior, while the c[2] + c[3]*logP terms provide additional flexibility to fit the data
+        # more accurately before the exponential term dominates at higher pressures.
+        # The terms are calculated and summed term-by-term to ensure broadcasting works correctly.
+        log_fugacity_coefficient: Array = logP * (c[0] * jnp.exp(c[1] * logP) + c[2] + c[3] * logP)
+
+        return log_fugacity_coefficient
+
+
+_H2_3000K_chabrier21: RealGasBase = ChabrierFunction(
+    coeffs=((0.000791384922536, 0.538439447246127, 0.102092848927715, -0.015980196398366))
+)
+"""Function-fit version at 3000 K for H2 Chabrier EOS between 1 bar and 1e6 bar :cite:p:`CD21`"""
+
+ideal_gas: RealGasBase = IdealGas()
+H2_3000K_chabrier21: RealGasBase = CombinedRealGasFugacity(
+    (ideal_gas, _H2_3000K_chabrier21),
+    (
+        ExperimentalCalibration(pressure_max=1),
+        ExperimentalCalibration(
+            temperature_min=3000, temperature_max=3000, pressure_min=1, pressure_max=1e6
+        ),
+    ),
+)
+"""H2 Chabrier EOS at 3000 K between 1 bar and 1e6 bar :cite:p:`CD21`"""
+
+_H2_4000K_chabrier21: RealGasBase = ChabrierFunction(
+    coeffs=((0.001804443584257, 0.46694548641623, 0.49686883364686, -0.048233745656908))
+)
+"""Function-fit version at 4000 K for H2 Chabrier EOS between 1 bar and 1e6 bar :cite:p:`CD21`"""
+
+H2_4000K_chabrier21: RealGasBase = CombinedRealGasFugacity(
+    (ideal_gas, _H2_4000K_chabrier21),
+    (
+        ExperimentalCalibration(pressure_max=1),
+        ExperimentalCalibration(
+            temperature_min=4000, temperature_max=4000, pressure_min=1, pressure_max=1e6
+        ),
+    ),
+)
+"""H2 Chabrier EOS at 4000 K between 1 bar and 1e6 bar :cite:p:`CD21`"""
+
 calibration_chabrier21: ExperimentalCalibration = ExperimentalCalibration(
     temperature_min=100, temperature_max=1.0e8, pressure_max=1.0e17
 )
 """Calibration for :cite:t:`CD21`"""
 H2_chabrier21: RealGas = Chabrier.create(Path("TABLE_H_TP_v1"))
 r""":math:`\mathrm{H}_2` :cite:p:`CD21`"""
-H2_chabrier21_bounded: RealGas = CombinedRealGas.create(
-    [H2_chabrier21],
-    [calibration_chabrier21],
-)
+H2_chabrier21_bounded: RealGas = CombinedRealGas.create([H2_chabrier21], [calibration_chabrier21])
 r""":math:`\mathrm{H}_2` bounded :cite:p:`CD21`"""
 He_chabrier21: RealGas = Chabrier.create(Path("TABLE_HE_TP_v1"))
 """He :cite:p:`CD21`"""
@@ -286,14 +360,16 @@ H2_He_Y0297_chabrier21_bounded: RealGas = CombinedRealGas.create(
 """H2HeY0297 bounded :cite:p:`CD21`"""
 
 
-def get_chabrier_eos_models() -> dict[str, RealGas]:
+def get_chabrier_eos_models() -> dict[str, RealGasBase]:
     """Gets a dictionary of EOS models
 
     Returns:
         Dictionary of EOS models
     """
-    eos_models: dict[str, RealGas] = {}
+    eos_models: dict[str, RealGasBase] = {}
     eos_models["H2_chabrier21"] = H2_chabrier21_bounded
+    eos_models["H2_3000K_chabrier21"] = H2_3000K_chabrier21
+    eos_models["H2_4000K_chabrier21"] = H2_4000K_chabrier21
     eos_models["H2_He_Y0275_chabrier21"] = H2_He_Y0275_chabrier21_bounded
     eos_models["H2_He_Y0292_chabrier21"] = H2_He_Y0292_chabrier21_bounded
     eos_models["H2_He_Y0297_chabrier21"] = H2_He_Y0297_chabrier21_bounded

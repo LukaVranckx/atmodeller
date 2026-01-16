@@ -40,43 +40,14 @@ from atmodeller.type_aliases import OptxSolver
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-class RealGas(eqx.Module):
-    r"""A real gas equation of state (EOS)
+class RealGasBase(eqx.Module):
+    """A real gas equation of state (EOS) without explicit volume calculations
 
-    Fugacity is computed using the standard relation:
-
-    .. math::
-        R T \ln f = \int V dP
-
-    where :math:`R` is the gas constant, :math:`T` is temperature, :math:`f` is fugacity, :math:`V`
-    is volume, and :math:`P` is pressure.
+    For the purpose of Atmodeller calculations, i.e. solving the reaction equilibrium, it is only
+    necessary to be able to calculate the fugacity.
     """
 
     @abstractmethod
-    def volume(self, temperature: ArrayLike, pressure: ArrayLike) -> ArrayLike:
-        r"""Volume
-
-        Args:
-            temperature: Temperature in K
-            pressure: Pressure in bar
-
-        Returns:
-            Volume in :math:`\mathrm{m}^3\ \mathrm{mol}^{-1}`
-        """
-
-    @abstractmethod
-    def volume_integral(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
-        r"""Volume integral in units required for internal Atmodeller operations.
-
-        Args:
-            temperature: Temperature in K
-            pressure: Pressure in bar
-
-        Returns:
-            Volume integral in :math:`\mathrm{m}^3\ \mathrm{bar}\ \mathrm{mol}^{-1}`
-        """
-
-    @eqx.filter_jit
     def log_fugacity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
         """Log fugacity
 
@@ -87,11 +58,58 @@ class RealGas(eqx.Module):
         Returns:
             Log fugacity in bar
         """
-        log_fugacity: Array = self.volume_integral(temperature, pressure) / (
-            GAS_CONSTANT_BAR * temperature
-        )
 
-        return log_fugacity
+    @eqx.filter_jit
+    def fugacity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        """Fugacity
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            Fugacity in bar
+        """
+        return safe_exp(self.log_fugacity(temperature, pressure))
+
+    @eqx.filter_jit
+    def log_fugacity_coefficient(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        """Log fugacity coefficient
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            Log fugacity coefficient, which is dimensionless
+        """
+        return self.log_fugacity(temperature, pressure) - jnp.log(pressure)
+
+    @eqx.filter_jit
+    def fugacity_coefficient(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        """Fugacity coefficient
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            fugacity coefficient, which is dimensionless
+        """
+        return safe_exp(self.log_fugacity_coefficient(temperature, pressure))
+
+    @eqx.filter_jit
+    def log_activity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        """Log activity
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            Log activity, which is dimensionless
+        """
+        return self.log_fugacity(temperature, pressure) / STANDARD_FUGACITY
 
     @eqx.filter_jit
     def pressure_from_fugacity(self, temperature: ArrayLike, fugacity: ArrayLike) -> Array:
@@ -131,6 +149,61 @@ class RealGas(eqx.Module):
         pressure: ArrayLike = sol.value
 
         return pressure
+
+
+class RealGas(RealGasBase):
+    r"""A real gas equation of state (EOS) with volume calculations
+
+    Fugacity is computed using the standard relation:
+
+    .. math::
+        R T \ln f = \int V dP
+
+    where :math:`R` is the gas constant, :math:`T` is temperature, :math:`f` is fugacity, :math:`V`
+    is volume, and :math:`P` is pressure.
+    """
+
+    @abstractmethod
+    def volume(self, temperature: ArrayLike, pressure: ArrayLike) -> ArrayLike:
+        r"""Volume
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            Volume in :math:`\mathrm{m}^3\ \mathrm{mol}^{-1}`
+        """
+
+    @abstractmethod
+    def volume_integral(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        r"""Volume integral in units required for internal Atmodeller operations.
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            Volume integral in :math:`\mathrm{m}^3\ \mathrm{bar}\ \mathrm{mol}^{-1}`
+        """
+
+    @override
+    @eqx.filter_jit
+    def log_fugacity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
+        """Log fugacity
+
+        Args:
+            temperature: Temperature in K
+            pressure: Pressure in bar
+
+        Returns:
+            Log fugacity in bar
+        """
+        log_fugacity: Array = self.volume_integral(temperature, pressure) / (
+            GAS_CONSTANT_BAR * temperature
+        )
+
+        return log_fugacity
 
     @eqx.filter_jit
     def volume_integral_J(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
@@ -180,19 +253,6 @@ class RealGas(eqx.Module):
         return dvdp_fn(temperature, pressure)
 
     @eqx.filter_jit
-    def log_activity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
-        """Log activity
-
-        Args:
-            temperature: Temperature in K
-            pressure: Pressure in bar
-
-        Returns:
-            Log activity, which is dimensionless
-        """
-        return self.log_fugacity(temperature, pressure) / STANDARD_FUGACITY
-
-    @eqx.filter_jit
     def compressibility_factor(self, temperature: ArrayLike, pressure: ArrayLike) -> ArrayLike:
         """Compressibility factor
 
@@ -208,47 +268,6 @@ class RealGas(eqx.Module):
         compressibility_factor: ArrayLike = volume / volume_ideal
 
         return compressibility_factor
-
-    @eqx.filter_jit
-    def fugacity(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
-        """Fugacity
-
-        Args:
-            temperature: Temperature in K
-            pressure: Pressure in bar
-
-        Returns:
-            Fugacity in bar
-        """
-        fugacity: Array = safe_exp(self.log_fugacity(temperature, pressure))
-
-        return fugacity
-
-    @eqx.filter_jit
-    def log_fugacity_coefficient(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
-        """Log fugacity coefficient
-
-        Args:
-            temperature: Temperature in K
-            pressure: Pressure in bar
-
-        Returns:
-            Log fugacity coefficient, which is dimensionless
-        """
-        return self.log_fugacity(temperature, pressure) - jnp.log(pressure)
-
-    @eqx.filter_jit
-    def fugacity_coefficient(self, temperature: ArrayLike, pressure: ArrayLike) -> Array:
-        """Fugacity coefficient
-
-        Args:
-            temperature: Temperature in K
-            pressure: Pressure in bar
-
-        Returns:
-            fugacity coefficient, which is dimensionless
-        """
-        return safe_exp(self.log_fugacity_coefficient(temperature, pressure))
 
 
 class IdealGas(RealGas):
