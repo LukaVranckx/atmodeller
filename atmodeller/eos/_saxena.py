@@ -365,10 +365,16 @@ H2_SS92: RealGas = CombinedRealGas.create(
     [_H2_low_pressure_SS92, _H2_high_pressure_SS92],
     [
         ExperimentalCalibration(pressure_min=1, pressure_max=1000),
-        ExperimentalCalibration(pressure_min=1000),
+        ExperimentalCalibration(pressure_min=1000, pressure_max=1e5),
     ],
 )
-"""H2 EOS, which combines the low and high pressure EOS :cite:p:`SS92{Table 1b}`"""
+"""H2 EOS, which combines the low and high pressure EOS :cite:p:`SS92{Table 1b}`
+
+Impose an upper bound on the high pressure fit to avoid unphysical extrapolation for pressures
+beyond around 100 kbar. This limit was determined by visual inspection of plots of the fugacity
+versus pressure at various temperatures, where beyond 100 kbar a sudden downturn in fugacity was
+observed due to the breakdown of the functional form (polynomial representation).
+"""
 
 _H2_high_pressure_SF88: RealGas = SaxenaEightCoefficients(
     a_coefficients=(1.6688, 0, -2.0759, 0, -9.6173, 0, 0, -0.1694),

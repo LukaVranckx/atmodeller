@@ -36,10 +36,10 @@ from atmodeller.eos._saxena import get_saxena_eos_models
 from atmodeller.eos._vanderwaals import get_vanderwaals_eos_models
 from atmodeller.eos._wang import get_wang_eos_models
 from atmodeller.eos._zhang_duan import get_zhang_eos_models
-from atmodeller.eos.core import RealGas
+from atmodeller.eos.core import RealGasBase
 
 
-def get_eos_models() -> dict[str, RealGas]:
+def get_eos_models() -> dict[str, RealGasBase]:
     """Gets a dictionary of EOS models
 
     Returns:

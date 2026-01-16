@@ -30,6 +30,8 @@ STANDARD_FUGACITY: float = STANDARD_PRESSURE
 """Standard fugacity for gases in bar"""
 GAS_STATE: str = "g"
 """Suffix to identify gases as per JANAF convention for the state of aggregation"""
+CONDENSED_STATE: str = "cd"
+"""Suffix to identify condensed phases as per JANAF convention for the state of aggregation"""
 
 # Initial solution guess
 INITIAL_LOG_NUMBER_MOLES: float = 50.0

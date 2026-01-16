@@ -400,13 +400,23 @@ def get_species_ppmw_in_melt(
         ppmw of species dissolved in melt
     """
     species_network: SpeciesNetwork = parameters.species_network
-    diatomic_oxygen_index: Integer[Array, ""] = jnp.array(species_network.diatomic_oxygen_index)
+    # Could be an integer (but represented as a float) or np.nan
+    diatomic_oxygen_index: Float[Array, ""] = jnp.array(species_network.diatomic_oxygen_index)
     temperature: Float[Array, ""] = parameters.state.temperature
 
     log_activity: Float[Array, " species"] = get_log_activity(parameters, log_number_moles)
     fugacity: Float[Array, " species"] = safe_exp(log_activity)
     total_pressure: Float[Array, ""] = get_total_pressure(parameters, log_number_moles)
-    diatomic_oxygen_fugacity: Float[Array, ""] = jnp.take(fugacity, diatomic_oxygen_index)
+
+    # For type consistency, convert to integer array with nan as 0
+    diatomic_oxygen_index_: Integer[Array, ""] = jnp.nan_to_num(
+        diatomic_oxygen_index, nan=0
+    ).astype(jnp.int_)
+
+    # Get fO2, or nan if not present
+    diatomic_oxygen_fugacity: Float[Array, ""] = jnp.where(
+        jnp.isnan(diatomic_oxygen_index), jnp.nan, jnp.take(fugacity, diatomic_oxygen_index_)
+    )
 
     # NOTE: All solubility formulations must return a JAX array to allow vmap
     solubility_funcs: list[Callable] = [
@@ -414,20 +424,19 @@ def get_species_ppmw_in_melt(
     ]
 
     def apply_solubility(
-        index: Integer[Array, ""], fugacity: Float[Array, ""]
+        index: Integer[Array, ""],
+        fugacity_val: Float[Array, ""],
+        temp: Float[Array, ""],
+        press: Float[Array, ""],
+        o2_fug: Float[Array, ""],
     ) -> Float[Array, ""]:
-        return lax.switch(
-            index,
-            solubility_funcs,
-            fugacity,
-            temperature,
-            total_pressure,
-            diatomic_oxygen_fugacity,
-        )
+        return lax.switch(index, solubility_funcs, fugacity_val, temp, press, o2_fug)
 
     indices: Integer[Array, " species"] = jnp.arange(len(species_network))
-    vmap_solubility: Callable = eqx.filter_vmap(apply_solubility, in_axes=(0, 0))
-    species_ppmw: Float[Array, " species"] = vmap_solubility(indices, fugacity)
+    vmap_solubility: Callable = eqx.filter_vmap(apply_solubility, in_axes=(0, 0, None, None, None))
+    species_ppmw: Float[Array, " species"] = vmap_solubility(
+        indices, fugacity, temperature, total_pressure, diatomic_oxygen_fugacity
+    )
     # jax.debug.print("ppmw = {out}", out=ppmw)
 
     return species_ppmw

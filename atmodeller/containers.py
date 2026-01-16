@@ -33,6 +33,7 @@ from jaxtyping import Array, ArrayLike, Bool, Float
 from molmass import CompositionItem, Formula
 
 from atmodeller.constants import (
+    CONDENSED_STATE,
     GAS_STATE,
     LOG_NUMBER_MOLES_LOWER,
     LOG_NUMBER_MOLES_UPPER,
@@ -85,7 +86,7 @@ class ChemicalSpecies(eqx.Module):
         cls,
         formula: str,
         *,
-        state: str = "cr",
+        state: str = CONDENSED_STATE,
         activity: ActivityProtocol = CondensateActivity(),
         solve_for_stability: bool = True,
     ) -> "ChemicalSpecies":
@@ -93,8 +94,9 @@ class ChemicalSpecies(eqx.Module):
 
         Args:
             formula: Formula
-            state: State of aggregation as defined by JANAF. Defaults to ``cr``.
-            activity: Activity. Defaults to ``1.0`` (unity activity).
+            state: State of aggregation as defined by JANAF. Defaults to
+                :const:`~atmodeller.constants.CONDENSED_STATE`
+            activity: Activity. Defaults to unity activity.
             solve_for_stability. Solve for stability. Defaults to ``True``.
 
         Returns:
@@ -171,8 +173,8 @@ class SpeciesNetwork(eqx.Module):
     """Unique elements in species in alphabetical order"""
     element_molar_masses: NpFloat
     """Molar masses of the ordered elements"""
-    diatomic_oxygen_index: int
-    """Index of diatomic oxygen"""
+    diatomic_oxygen_index: NpFloat
+    """Index of diatomic oxygen or np.nan if not present"""
     number_reactions: int
     """Number of reactions"""
     formula_matrix: NpInt
@@ -266,23 +268,21 @@ class SpeciesNetwork(eqx.Module):
         """Number of species"""
         return len(self.data)
 
-    def get_diatomic_oxygen_index(self) -> int:
+    def get_diatomic_oxygen_index(self) -> NpFloat:
         """Gets the species index corresponding to diatomic oxygen.
 
+        Note:
+            This returns a float array for type consistency.
+
         Returns:
-            Index of diatomic oxygen, or the first index if diatomic oxygen is not in the species
+            Index of diatomic oxygen, or np.nan if diatomic oxygen is not in the species
         """
         for nn, species_ in enumerate(self.data):
             if species_.data.hill_formula == "O2":
                 # logger.debug("Found O2 at index = %d", nn)
-                return nn
+                return np.array(nn, dtype=float)
 
-        # FIXME: Bad practice to return the first index because it could be wrong and therefore
-        # give rise to spurious results, but an index must be passed to evaluate the species
-        # solubility that may depend on fO2. Otherwise, a precheck could be be performed in which
-        # all the solubility laws chosen by the user are checked to see if they depend on fO2. And
-        # if so, and fO2 is not included in the model, an error is raised.
-        return 0
+        return np.array(np.nan, dtype=float)
 
     def get_formula_matrix(self) -> NpInt:
         """Gets the formula matrix.

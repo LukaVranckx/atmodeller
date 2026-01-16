@@ -79,7 +79,7 @@ def test_H_and_C(helper) -> None:
         state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
     )
     output: Output = model.output
     solution: dict[str, ArrayLike] = output.quick_look()
@@ -113,7 +113,7 @@ def test_CHO_reduced(helper) -> None:
         state=planet,
         fugacity_constraints=fugacity_constraints,
         mass_constraints=mass_constraints,
-        solver_type="basic",
+        solver="basic",
     )
     output: Output = gas_CHO_model.output
     solution: dict[str, ArrayLike] = output.quick_look()
