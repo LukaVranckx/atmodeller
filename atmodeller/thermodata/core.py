@@ -594,10 +594,10 @@ class ChemicalSpeciesData(eqx.Module):
     molar_mass: float = eqx.field(converter=float)
     """Molar mass"""
     miscibility: bool = False
-    """Mix of multiple species"""
-    mass_constraints : Optional[dict[str, float]] = None
+    """Mix of H2-H2O"""
+    mole_frac_H2 : Optional[float] = None
 
-    def __init__(self, formula: str, state: str, miscibility: bool,mass_constraints: Optional[dict[str, float]] = None):
+    def __init__(self, formula: str, state: str, miscibility: bool,mole_frac_H2: Optional[float] = None):
         self.formula = formula
         self.state = state
         mformula: Formula = Formula(self.formula)
@@ -605,7 +605,7 @@ class ChemicalSpeciesData(eqx.Module):
         self.hill_formula = mformula.formula
         self.molar_mass = mformula.mass * unit_conversion.g_to_kg
         self.miscibility = miscibility
-        self.mass_constraints = mass_constraints
+        self.mole_frac_H2 = mole_frac_H2
         if not miscibility:
             try:
                 self.thermo = thermodynamic_coefficients_dictionary[self.name]
@@ -623,25 +623,23 @@ class ChemicalSpeciesData(eqx.Module):
             
             # jax.debug.print("{}", base_comp['H'])
             ## PROBLEM: at second iteration, no H2 and H2O anymore
-            # x_H = 2 * mole_fractions["H2"] + 2 * mole_fractions["H2O"]  # type: ignore
-            # x_O = mole_fractions["H2O"] # type: ignore
-            ## Hard to derive mole fraction H2,H2O from mass_H, mass_O because also have O2, hcose very arbitrarily
+            mole_frac_H2O = 1 - mole_frac_H2  # type: ignore
+            # print('mole_frac_H2', mole_frac_H2)
+            x_H = 2 * mole_frac_H2 + 2 * mole_frac_H2O  # type: ignore
+            x_O = mole_frac_H2O # type: ignore
+            ## Hard to derive mole fraction H2,H2O from mass_H, mass_O because also have O2, choice very arbitrarily
             # EARTH_MASS = 5.972e24 # 1 Earth mass (kg)
             # planet_mass = 5 * EARTH_MASS 
             # x_H = mass_constraints["H"]/planet_mass # type: ignore
             # x_O = mass_constraints["O"]/planet_mass # type: ignore
-            x_H = 5
-            x_O = 1
-            # scaler = 2 
-            # x_H = 0.6 * scaler
-            # x_O = 0.4 * scaler
+            # x_H = 4
+            # x_O = 1
             n, a, b = base_comp["H"]
             base_comp["H"] = (n * x_H, a * x_H, b * x_H) # type: ignore
             n, a, b = base_comp["O"]
             base_comp["O"] = (n * x_O, a * x_O, b * x_O) # type: ignore
 
             self.composition = ImmutableMap(base_comp) # replace self.composition
-            print(mass_constraints)
             print(self.composition)
 
     @property
@@ -707,8 +705,8 @@ class ChemicalSpeciesData(eqx.Module):
             if self.formula == 'HO':
                 print('INFO | Calculating Gibbs energy of mixing')
                 # jax.debug.print('pressure is {}', pressure) 
-                pressure_GPa = pressure/1e4
-                x = 0.5 #TODO from user input 'mole_fractions'
+                pressure_GPa = pressure/1e4 # type: ignore
+                x = 0.89 #TODO from user input 'mole_fractions'
                 G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
                 G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
                 gibbs_over_RT_pure = x*G_H2 + (1-x)*G_H2O
@@ -724,6 +722,8 @@ class ChemicalSpeciesData(eqx.Module):
                 W = W_H - temperature*W_S + pressure_GPa*W_V
                 gibbs_excess: Float[Array, " T"] = jnp.array(W*Y*(1-Y), float)
                 # jax.debug.print('Gibbs energy of mixing is {}, temperature {}', gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature),temperature)
+                
+                # gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_excess/(GAS_CONSTANT * temperature)
                 gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature)
 
                 

@@ -189,41 +189,43 @@ class SpeciesNetwork(eqx.Module):
     number_solution: int
     """Number of solution quantities that cannot depend on traced quantities"""
 
-    def __init__(self, data: Iterable[ChemicalSpecies],miscibility: bool = False, mass_constraints: Optional[dict[str, float]] = None, temperature: Optional[float] = None, pressure: Optional[float] = None):
+    def __init__(self, data: Iterable[ChemicalSpecies],miscibility: bool = False, mole_frac_H2: Optional[float] = None, temperature: Optional[float] = None, pressure: Optional[float] = None):
         self.data = tuple(data)
         # self.miscibility = miscibility
         # self.mole_fractions = mole_fractions
-        # self.temperature = temperature&&
+        # self.temperature = temperature
         # self.pressure = pressure
 
         if miscibility: # Changing species in data to 1 phase mixture or 2 coexisting phases
-            if mass_constraints is None or temperature is None or pressure is None:
+            if mole_frac_H2 is None or temperature is None or pressure is None:
                 raise ValueError("miscibility=True requires mole_fractions, temperature and pressure")
 
             # Tell PyLance these are safe
-            assert mass_constraints is not None
+            assert mole_frac_H2 is not None
             assert temperature is not None
             assert pressure is not None
 
             # STEP 1: deciding between 1 phase and 2 coexisting phases
             GAS_CONSTANT: float = constants.gas_constant
-            x = 0.5 # initial mole fraction H2, formula from m_H, m_O, m_C ???
+            x = mole_frac_H2 # initial mole fraction H2, formula from m_H, m_O, m_C ???
             LAMBDA = 2.62 + (-0.68)/(temperature/1000)
             y = x / (x + LAMBDA*(1-x))
             W_H = -599.08
             W_S = -16.08
             W_V = -26.12 + 981.78/(temperature/1000)**2
-            P_crit = 1/W_V * (GAS_CONSTANT*temperature/(1-2*y) * np.log((1-y)/y) - (W_H - temperature*W_S))
+            P_crit = 1/W_V * (GAS_CONSTANT*temperature/(1-2*y) * np.log((1-y)/y) - (W_H - temperature*W_S)) # solvus from Gupta et al 2025
             pressure_GPa = pressure/1e4
+            # print('P_crit: ', P_crit)
+            # print('pressure_GPa: ',pressure_GPa)
             if pressure_GPa <= P_crit: # one homogeneous phase
                 print(self)
                 # Define HxO as HO, having 1 H, 1 O which can later easily be adjusted to the right ratios
-                species_data = ChemicalSpeciesData('HO','g', miscibility=True, mass_constraints=mass_constraints)
+                species_data = ChemicalSpeciesData('HO','g', miscibility=True, mole_frac_H2=mole_frac_H2)
                 # species_data.formula = 'HxO' # Can't change fomula
                 # print(species_data)
                 HxO_g: ChemicalSpecies = ChemicalSpecies(species_data, IdealGas(), NoSolubility(), solve_for_stability = False, number_solution = 1)
                 # HxO_g: ChemicalSpecies = ChemicalSpecies.create_gas("H2")
-                self.data = self.data + (HxO_g,)
+                self.data = (HxO_g,) + self.data 
                 print(self)
                 # Replacing self.data with tuple where H2 and H2O are removed
                 self.data = tuple(s for s in self if s.data.formula not in ['H2','H2O'])
