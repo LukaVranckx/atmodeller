@@ -56,7 +56,7 @@ gas_HO_model: EquilibriumModel = EquilibriumModel(species)
 
 def test_version():
     """Test version."""
-    assert __version__ == "0.11.0"
+    assert __version__ == "1.0.0"
 
 
 def test_H2O(helper) -> None:
