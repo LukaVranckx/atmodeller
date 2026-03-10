@@ -157,4 +157,4 @@ class VmappedFunctions:
         return self._get_total_pressure(self.parameters, log_number_moles)
 
     def objective_function(self, solution: Array) -> Array:
-        return self._objective_function_vmap(solution, self.parameters,mole_frac_H2=None)
+        return self._objective_function_vmap(solution, self.parameters)

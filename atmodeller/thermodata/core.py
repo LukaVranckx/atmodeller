@@ -704,11 +704,11 @@ class ChemicalSpeciesData(eqx.Module):
             #     jax.debug.print("gibbs_over_RT reaction Y corrected = {}, temperature {}, y {}",G_H4O-Y*G_H2-(1-Y)*G_H2O, temperature, Y)
             if self.formula == 'HO':
                 print('INFO | Calculating Gibbs energy of mixing')
-                jax.debug.print('pressure is {}', pressure) 
+                # jax.debug.print('pressure is {}', pressure) 
                 pressure_GPa = pressure/1e4 # type: ignore
                 x = 0.99 #TODO from user input 'mole_fractions’
                 # x = mole_frac_H2 # type: ignore
-                jax.debug.print('mole fraction H2 is {}', x)
+                # jax.debug.print('mole fraction H2 is {}', x)
                 G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
                 G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
                 gibbs_over_RT_pure = x*G_H2 + (1-x)*G_H2O # type: ignore

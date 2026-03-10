@@ -483,7 +483,7 @@ def get_total_pressure(
 
 
 def objective_function(
-    solution: Float[Array, " solution"], parameters: Parameters, mole_frac_H2: Float[Array, ""]
+    solution: Float[Array, " solution"], parameters: Parameters, mole_frac_H2: Float[Array, ""] = None # type: ignore
 ) -> Float[Array, " residual"]:
     """Objective function
 
