@@ -652,7 +652,7 @@ class ChemicalSpeciesData(eqx.Module):
         """Unique name by combining Hill notation and state of aggregation"""
         return f"{self.hill_formula}_{self.state}"
 
-    def get_gibbs_over_RT(self, temperature: ArrayLike, pressure: Optional[ArrayLike]) -> Array:
+    def get_gibbs_over_RT(self, temperature: ArrayLike, pressure: Optional[ArrayLike], mole_frac_H2: Optional[Float] = None) -> Array:
         """Gets Gibbs energy over RT. For the miscible phase of H and H2O, the Gibbs energy of 
         mixing is calculated according to Gupta et al. 2025 A.3 {Equation A3}
 
@@ -704,15 +704,17 @@ class ChemicalSpeciesData(eqx.Module):
             #     jax.debug.print("gibbs_over_RT reaction Y corrected = {}, temperature {}, y {}",G_H4O-Y*G_H2-(1-Y)*G_H2O, temperature, Y)
             if self.formula == 'HO':
                 print('INFO | Calculating Gibbs energy of mixing')
-                # jax.debug.print('pressure is {}', pressure) 
+                jax.debug.print('pressure is {}', pressure) 
                 pressure_GPa = pressure/1e4 # type: ignore
-                x = 0.89 #TODO from user input 'mole_fractions'
+                x = 0.99 #TODO from user input 'mole_fractions’
+                # x = mole_frac_H2 # type: ignore
+                jax.debug.print('mole fraction H2 is {}', x)
                 G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
                 G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
-                gibbs_over_RT_pure = x*G_H2 + (1-x)*G_H2O
+                gibbs_over_RT_pure = x*G_H2 + (1-x)*G_H2O # type: ignore
 
                 LAMBDA = 2.62 + (-0.68)/(temperature/1000) 
-                Y = x / (x + LAMBDA*(1-x))
+                Y = x / (x + LAMBDA*(1-x)) # type: ignore
                 gibbs_idealmix: Float[Array, " T"] = jnp.array(Y*jnp.log(Y)+(1-Y)*jnp.log(1-Y), float)
                 # jax.debug.print("gibbs_idealmix = {}, temperature {}", gibbs_idealmix, temperature)
                 W_H = -599.08

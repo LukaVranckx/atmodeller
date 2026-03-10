@@ -268,7 +268,7 @@ def get_log_activity_pure_species(
     return log_activity_pure_species
 
 import jax
-def get_log_Kp(parameters: Parameters, pressure: ArrayLike, log_number_moles) -> Float[Array, " reactions"]:
+def get_log_Kp(parameters: Parameters, pressure: ArrayLike, log_number_moles, mole_frac_H2) -> Float[Array, " reactions"]:
     """Gets log of the equilibrium constant of each reaction in terms of partial pressures.
 
     Args:
@@ -282,14 +282,14 @@ def get_log_Kp(parameters: Parameters, pressure: ArrayLike, log_number_moles) ->
     ]
 
     def apply_gibbs(
-        index: Integer[Array, ""], temperature: Float[Array, "..."], pressure: Float[Array, "..."]
+        index: Integer[Array, ""], temperature: Float[Array, "..."], pressure: Float[Array, "..."], mole_frac_H2: Float[Array, "..."]
     ) -> Float[Array, "..."]:
-        return lax.switch(index, gibbs_funcs, temperature, pressure)
+        return lax.switch(index, gibbs_funcs, temperature, pressure, mole_frac_H2)
 
     indices: Integer[Array, " species"] = jnp.arange(len(parameters.species_network))
-    vmap_gibbs: Callable = eqx.filter_vmap(apply_gibbs, in_axes=(0, None, None))
+    vmap_gibbs: Callable = eqx.filter_vmap(apply_gibbs, in_axes=(0, None, None, None))
     # jax.debug.print("log_number_moles = {out}", out=log_number_moles)
-    gibbs_values: Float[Array, "species 1"] = vmap_gibbs(indices, parameters.state.temperature, pressure)
+    gibbs_values: Float[Array, "species 1"] = vmap_gibbs(indices, parameters.state.temperature, pressure, mole_frac_H2)
     # jax.debug.print("gibbs_values = {out}", out=gibbs_values)
     reaction_matrix: Float[Array, "reactions species"] = jnp.asarray(
         parameters.species_network.reaction_matrix
@@ -483,7 +483,7 @@ def get_total_pressure(
 
 
 def objective_function(
-    solution: Float[Array, " solution"], parameters: Parameters
+    solution: Float[Array, " solution"], parameters: Parameters, mole_frac_H2: Float[Array, ""]
 ) -> Float[Array, " residual"]:
     """Objective function
 
@@ -537,7 +537,7 @@ def objective_function(
         parameters.species_network.reaction_matrix
     )
 
-    log_reaction_equilibrium_constant: Float[Array, " reactions"] = get_log_Kp(parameters,total_pressure,log_number_moles)
+    log_reaction_equilibrium_constant: Float[Array, " reactions"] = get_log_Kp(parameters,total_pressure,log_number_moles,mole_frac_H2)
     # jax.debug.print(
     #    "log_reaction_equilibrium_constant = {out}", out=log_reaction_equilibrium_constant.shape
     # )
