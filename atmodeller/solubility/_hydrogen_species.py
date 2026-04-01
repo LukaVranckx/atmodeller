@@ -137,7 +137,7 @@ class _H2_chachan18(Solubility):
         mass_fraction: Array = jnp.exp(-self.T0 / temperature) * self.A * fugacity
         ppmw: Array = mass_fraction * unit_conversion.fraction_to_ppm
 
-        return ppmw
+        return ppmw 
 
 
 H2_chachan18: Solubility = _H2_chachan18(

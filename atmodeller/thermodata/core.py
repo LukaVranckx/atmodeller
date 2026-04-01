@@ -620,7 +620,6 @@ class ChemicalSpeciesData(eqx.Module):
             
             ## Changing composition by taking into account mole fracions of constituent gasses (H2, H2O)
             base_comp = dict(ChemicalSpeciesData("HO",'g',miscibility=False).composition) # copy of self.composition
-            
             # jax.debug.print("{}", base_comp['H'])
             ## PROBLEM: at second iteration, no H2 and H2O anymore
             mole_frac_H2O = 1 - mole_frac_H2  # type: ignore
@@ -652,7 +651,7 @@ class ChemicalSpeciesData(eqx.Module):
         """Unique name by combining Hill notation and state of aggregation"""
         return f"{self.hill_formula}_{self.state}"
 
-    def get_gibbs_over_RT(self, temperature: ArrayLike, pressure: Optional[ArrayLike], mole_frac_H2: Optional[Float] = None) -> Array:
+    def get_gibbs_over_RT(self, temperature: ArrayLike, pressure: Optional[ArrayLike], log_number_moles: Optional[Float] = None) -> Array:
         """Gets Gibbs energy over RT. For the miscible phase of H and H2O, the Gibbs energy of 
         mixing is calculated according to Gupta et al. 2025 A.3 {Equation A3}
 
@@ -704,14 +703,40 @@ class ChemicalSpeciesData(eqx.Module):
             #     jax.debug.print("gibbs_over_RT reaction Y corrected = {}, temperature {}, y {}",G_H4O-Y*G_H2-(1-Y)*G_H2O, temperature, Y)
             if self.formula == 'HO':
                 print('INFO | Calculating Gibbs energy of mixing')
+                # jax.debug.print("log_number_moles = {}", log_number_moles)
                 # jax.debug.print('pressure is {}', pressure) 
                 pressure_GPa = pressure/1e4 # type: ignore
-                x = 0.99 #TODO from user input 'mole_fractions’
+                # x = 0.99 #TODO from user input 'mole_fractions’
+                x_HxOy = self.composition['H'][0]
+                y_HxOy = self.composition['O'][0]
+                # print('x in HxOy: ', x_HxOy)
+                # print('y in HxOy: ', y_HxOy)
+                x = 1 - 2/(x_HxOy/y_HxOy)
+                print('x_H2: ', x)
+
                 # x = mole_frac_H2 # type: ignore
                 # jax.debug.print('mole fraction H2 is {}', x)
-                G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature)
-                G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature)
+                # Need to add fugacity correction (to convert G to real P instead of standard state 1 bar)
+                from atmodeller.eos.core import IdealGas, RealGas
+                from atmodeller.eos import get_eos_models
+                eos_models = get_eos_models()
+                G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) # Gibbs energy of pure species at 1 bar and given temperature
+                # jax.debug.print("G_H2 1 bar = {}, temperature {}, pressure {}",G_H2, temperature, pressure)
+                # from atmodeller.containers import ChemicalSpecies # Circular import
+                # NEED TO MANUALLY CHANGE IDEAL/REAL GAS FUGACITY HERE
+                activity = IdealGas()
+                # fugacity_correction_H2 = eos_models["H2_chabrier21"].log_fugacity(temperature, pressure) # type: ignore
+                # jax.debug.print("fugacity_correction_H2 = {}, temperature {}, pressure {}", fugacity_correction_H2, temperature, pressure)
+                G_H2 = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) + eos_models["H2_chabrier21"].log_fugacity(temperature, pressure) # type: ignore
+                G_H2_idealgas = ChemicalSpeciesData('H2', 'g',False).thermo.get_gibbs_over_RT(temperature) + activity.log_fugacity(temperature, pressure) # type: ignore
+                #+ activity.log_fugacity(temperature, pressure) # type: ignore 
+                #ChemicalSpecies.create_gas("H2").activity.log_fugacity(temperature, pressure) # type: ignore #+ eos_models["H2_chabrier21"].log_fugacity(temperature, pressure) # type: ignore
+                G_H2O = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature) + eos_models["H2O_cork_holland98"].log_fugacity(temperature, pressure) # type: ignore
+                G_H2O_idealgas = ChemicalSpeciesData('H2O', 'g',False).thermo.get_gibbs_over_RT(temperature) + activity.log_fugacity(temperature, pressure) # type: ignore
+                #+ activity.log_fugacity(temperature, pressure) # type: ignore 
+                # jax.debug.print("G_H2 = {}, temperature {}, pressure {}",G_H2, temperature, pressure)
                 gibbs_over_RT_pure = x*G_H2 + (1-x)*G_H2O # type: ignore
+                gibbs_over_RT_pure_idealgas = x*G_H2_idealgas + (1-x)*G_H2O_idealgas # type: ignore
 
                 LAMBDA = 2.62 + (-0.68)/(temperature/1000) 
                 Y = x / (x + LAMBDA*(1-x)) # type: ignore
@@ -726,7 +751,8 @@ class ChemicalSpeciesData(eqx.Module):
                 # jax.debug.print('Gibbs energy of mixing is {}, temperature {}', gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature),temperature)
                 
                 # gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_excess/(GAS_CONSTANT * temperature)
-                gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure + gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature)
+                # CHANGE TO _idealgas or not manually !!!
+                gibbs_over_RT: Float[Array, " T"] = gibbs_over_RT_pure_idealgas + gibbs_idealmix + gibbs_excess/(GAS_CONSTANT * temperature)
 
                 
         return gibbs_over_RT

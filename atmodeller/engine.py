@@ -219,6 +219,9 @@ def get_log_activity(
     log_mole_fraction: Float[Array, " species"] = get_log_mole_fraction_in_gas(
         parameters, log_number_moles
     )
+    species: SpeciesNetwork = parameters.species_network
+    # for i in range(len(species)):
+    #     jax.debug.print("Species {name}: log_mole_fraction = {x}", name=species[i].name, x=log_mole_fraction[i])
 
     log_activity_pure_species: Float[Array, " species"] = get_log_activity_pure_species(
         parameters, log_number_moles
@@ -265,6 +268,15 @@ def get_log_activity_pure_species(
     log_activity_pure_species: Float[Array, " species"] = vmap_activity(indices)
     # jax.debug.print("log_activity_pure_species = {out}", out=log_activity_pure_species)
 
+    # Since 'OH' species already has fugacity corrections in seperate H2 and H2O species, need to set its activity to 1 (log activity = 0) to avoid double counting
+    import numpy as np
+    index = np.where([species[i].name == 'HO_g' for i in range(len(species))])[0]
+    # print(index)
+    log_activity_pure_species = log_activity_pure_species.at[index].set(0.0)
+    # Check
+    # for i in range(len(species)):
+    #     jax.debug.print(f"Species {species[i].name}: log activity of pure species = {log_activity_pure_species[i]}")
+
     return log_activity_pure_species
 
 import jax
@@ -284,7 +296,7 @@ def get_log_Kp(parameters: Parameters, pressure: ArrayLike, log_number_moles, mo
     def apply_gibbs(
         index: Integer[Array, ""], temperature: Float[Array, "..."], pressure: Float[Array, "..."], mole_frac_H2: Float[Array, "..."]
     ) -> Float[Array, "..."]:
-        return lax.switch(index, gibbs_funcs, temperature, pressure, mole_frac_H2)
+        return lax.switch(index, gibbs_funcs, temperature, pressure, log_number_moles)
 
     indices: Integer[Array, " species"] = jnp.arange(len(parameters.species_network))
     vmap_gibbs: Callable = eqx.filter_vmap(apply_gibbs, in_axes=(0, None, None, None))
@@ -536,10 +548,13 @@ def objective_function(
     reaction_matrix: Float[Array, "reactions species"] = jnp.asarray(
         parameters.species_network.reaction_matrix
     )
+    # jax.debug.print(
+    #    "reaction_matrix = {out}", out=reaction_matrix
+    # )
 
     log_reaction_equilibrium_constant: Float[Array, " reactions"] = get_log_Kp(parameters,total_pressure,log_number_moles,mole_frac_H2)
     # jax.debug.print(
-    #    "log_reaction_equilibrium_constant = {out}", out=log_reaction_equilibrium_constant.shape
+    #    "log_reaction_equilibrium_constant = {out}", out=log_reaction_equilibrium_constant
     # )
     reaction_residual: Float[Array, " reactions"] = (
         reaction_matrix.dot(log_activity) - log_reaction_equilibrium_constant
